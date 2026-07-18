@@ -348,21 +348,31 @@ Each phase is independently useful and independently testable.
 
 ---
 
-## 15. Open decisions (need a call before/while building)
+## 15. Decisions (locked 2026-07-18)
 
-1. **Subentries vs per-reminder config entries** — recommend **subentries**
-   (one clean hub surface). Slightly newer API; v0.3.2 uses per-entry.
-2. **Rewrite vs refactor v0.3.2** — recommend **refactor toward this** (reuse
-   escalation/state/config-flow), not greenfield.
-3. **Aggregate `todo` as the primary operator UI?** — recommend yes; it's the
-   most HA-native "single list" and gives Assist voice for free.
-4. **Announce scope default** — single Echo (reliable) with optional per-reminder
-   synchronized awareness announce. (Confirmed: no group-actionable.)
-5. **Domain/name** — keep `actionable_reminders`, or rename (e.g. `reminders`,
-   `nag`)? Keeping it avoids a migration.
-6. **How much of `unified_notifications`' behavior to hard-depend on** — it's the
-   default channel, but the engine should degrade to plain notify if it's absent
-   (keeps the integration shareable).
+1. **Config model:** **subentries** — one hub config entry, reminders as config
+   subentries (clean single surface). *Sequencing:* the incremental refactor may
+   keep v0.3.2's per-entry model briefly, migrating to subentries before Phase 1
+   closes.
+2. **Refactor, not greenfield** — evolve v0.3.2 in place: keep its escalation
+   math, state model, and config-flow skeleton; restructure into Source/Engine/
+   Channel seams and add the missing pieces.
+3. **Aggregate `todo.reminders` is the primary operator UI** — most HA-native
+   "single list," Assist voice for free; sensors/buttons are secondary hooks.
+4. **Announce scope:** single Echo (`media_player.living_room_echo`) for the
+   actionable prompt; optional per-reminder synchronized awareness announce. No
+   group-actionable (proven broken).
+5. **Domain name stays `actionable_reminders`** — avoids a breaking migration;
+   the repo/title carry the friendlier name.
+6. **`unified_notifications` is the default channel but a soft dependency** — the
+   engine degrades to plain `notify` + `alexa_media` announce if it's absent, so
+   the integration stays shareable.
+
+### First build step (Phase 1, step 0)
+Wire `_send_prompt` → `script.unified_notifications` (confirm→`mark_done`,
+dismiss→`dismiss`). This closes v0.3.2's open ack loop and delivers voice-ack
+immediately — the smallest change that makes the current engine work end-to-end —
+before the larger Source/Channel restructure.
 
 ---
 
