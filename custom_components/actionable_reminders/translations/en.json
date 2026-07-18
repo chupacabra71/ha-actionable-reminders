@@ -1,0 +1,159 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Actionable Reminders",
+        "description": "Setting up Actionable Reminders hub with sensible defaults."
+      },
+      "reminder_step1": {
+        "title": "Create Reminder - Step 1 of 3",
+        "description": "Enter the reminder name, how often it should repeat, and the question to ask.",
+        "data": {
+          "reminder_name": "Reminder Name",
+          "schedule_type": "Schedule Type",
+          "message": "Prompt Message"
+        },
+        "data_description": {
+          "reminder_name": "A unique name for this reminder (e.g., 'Give dogs meds', 'Take out recycling')",
+          "schedule_type": "How often this reminder should repeat",
+          "message": "The question to ask when the reminder triggers (e.g., 'Did you give the dogs their meds?')"
+        }
+      },
+      "reminder_step2": {
+        "title": "Create Reminder - Step 2 of 3",
+        "description": "Configure when '{reminder_name}' should trigger.\n\nSchedule type: {schedule_type}",
+        "data": {
+          "schedule_time": "Time",
+          "schedule_days": "Days of Week",
+          "schedule_monthly_type": "Monthly Pattern Type"
+        },
+        "data_description": {
+          "schedule_time": "What time should the reminder trigger?",
+          "schedule_days": "Which days of the week?",
+          "schedule_monthly_type": "Choose between a specific day (1-31) or a week pattern (e.g., 'First Wednesday')"
+        }
+      },
+      "reminder_step3": {
+        "title": "Create Reminder - Step 3 of 3",
+        "description": "Configure the monthly pattern for '{reminder_name}'.\n\nPattern type: {monthly_type}",
+        "data": {
+          "schedule_monthly_day": "Day of Month",
+          "schedule_monthly_week": "Week",
+          "schedule_monthly_weekday": "Day of Week"
+        },
+        "data_description": {
+          "schedule_monthly_day": "Which day of the month? (1-31)",
+          "schedule_monthly_week": "Which week of the month?",
+          "schedule_monthly_weekday": "Which day of the week?"
+        }
+      }
+    },
+    "error": {
+      "name_exists": "A reminder with this name already exists"
+    },
+    "abort": {
+      "already_configured": "This reminder is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Reminder",
+        "description": "What would you like to configure?",
+        "menu_options": {
+          "edit_schedule": "Schedule (time and frequency)",
+          "edit_messages": "Messages (prompts and responses)",
+          "edit_notifications": "Notifications (mobile & Alexa)",
+          "edit_retry": "Retry & Escalation",
+          "edit_presence_quiet": "Presence & Quiet Hours",
+          "edit_behavior": "Behavior Flags"
+        }
+      },
+      "edit_schedule": {
+        "title": "Edit Schedule",
+        "description": "Change when this reminder triggers.\n\nSchedule type: {schedule_type}",
+        "data": {
+          "schedule_time": "Time",
+          "schedule_days": "Days of Week",
+          "schedule_monthly_day": "Day of Month",
+          "schedule_monthly_week": "Week",
+          "schedule_monthly_weekday": "Day of Week"
+        }
+      },
+      "edit_messages": {
+        "title": "Edit Messages",
+        "description": "Enter one message per line. A random message will be chosen each time.\n\nYou can use {reminder_name} as a placeholder in your messages.",
+        "data": {
+          "prompt_messages_text": "Prompt Messages",
+          "ack_messages_text": "Acknowledgment Messages (when done)",
+          "dismiss_messages_text": "Dismissal Messages (when not ready)"
+        },
+        "data_description": {
+          "prompt_messages_text": "Questions to ask (e.g., 'Did you take out the recycling?')",
+          "ack_messages_text": "Responses when marked done (e.g., 'Thank you!', 'Great, marked as done!')",
+          "dismiss_messages_text": "Responses when dismissed (e.g., 'Okay, I'll remind you again soon.')"
+        }
+      },
+      "edit_notifications": {
+        "title": "Edit Notifications",
+        "description": "Configure where notifications should be sent.\n\nLeave mobile service or Alexa devices empty to use hub defaults.",
+        "data": {
+          "mobile_notify_service": "Mobile Notify Service",
+          "alexa_devices": "Alexa Devices",
+          "actionable": "Actionable Notifications",
+          "escalation_volume": "Escalation Volume"
+        },
+        "data_description": {
+          "mobile_notify_service": "Which mobile notify service to use (e.g., notify.mobile_app)",
+          "alexa_devices": "Which Alexa/Echo devices to announce on",
+          "actionable": "Enable actionable notifications (Yes/No buttons)",
+          "escalation_volume": "Volume for Alexa announcements during escalation (0.0 - 1.0)"
+        }
+      },
+      "edit_retry": {
+        "title": "Edit Retry & Escalation",
+        "description": "Configure how aggressively the reminder should retry.\n\nLeave empty to use hub defaults.\n\nAfter max retries, enters escalation mode (louder, rotating devices). After max escalations, auto-skips for the day.",
+        "data": {
+          "retry_interval": "Retry Interval (minutes)",
+          "max_retries": "Maximum Retries",
+          "escalation_interval": "Escalation Interval (minutes)",
+          "max_escalations": "Maximum Escalations"
+        },
+        "data_description": {
+          "retry_interval": "Minutes between retry attempts",
+          "max_retries": "Number of retries before escalation",
+          "escalation_interval": "Minutes between escalated retries",
+          "max_escalations": "Number of escalations before auto-skip"
+        }
+      },
+      "edit_presence_quiet": {
+        "title": "Edit Presence & Quiet Hours",
+        "description": "Configure when reminders should be blocked.\n\nLeave empty to use hub defaults.",
+        "data": {
+          "presence_sensors": "Presence Sensors",
+          "catchup_on_arrival": "Catch-up on Arrival",
+          "quiet_start": "Quiet Hours Start",
+          "quiet_end": "Quiet Hours End"
+        },
+        "data_description": {
+          "presence_sensors": "Don't prompt if nobody is home (at least one sensor must be 'on')",
+          "catchup_on_arrival": "Trigger reminder immediately when someone arrives home",
+          "quiet_start": "Don't prompt after this time",
+          "quiet_end": "Don't prompt before this time"
+        }
+      },
+      "edit_behavior": {
+        "title": "Edit Behavior Flags",
+        "description": "Configure how this reminder behaves.",
+        "data": {
+          "optional": "Optional",
+          "until_done": "Until Done"
+        },
+        "data_description": {
+          "optional": "Optional reminders can be skipped/dismissed without consequence",
+          "until_done": "Keeps prompting daily until marked as done"
+        }
+      }
+    }
+  }
+}

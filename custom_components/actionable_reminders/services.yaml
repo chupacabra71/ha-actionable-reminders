@@ -1,0 +1,49 @@
+# Services for Actionable Reminders integration
+
+mark_done:
+  name: Mark Done
+  description: Mark a reminder as completed for today. Resets all retry counters and marks the task as done.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the reminder to mark as done. Can be found in the switch entity attributes.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+
+dismiss:
+  name: Dismiss
+  description: Dismiss a reminder without marking it done. Equivalent to responding "No, not yet" to an actionable notification. Increments retry counter and waits for next retry interval.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the reminder to dismiss.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+
+skip_today:
+  name: Skip Today
+  description: Skip a reminder for today. Marks it as done for today but doesn't count as completed. Will restart tomorrow at the scheduled time.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the reminder to skip.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+
+force_prompt:
+  name: Force Prompt
+  description: Immediately trigger a reminder prompt, bypassing all schedule, presence, and quiet hour checks. Useful for testing.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the reminder to prompt.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
