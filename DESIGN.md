@@ -45,7 +45,13 @@ knows about a normalized *Reminder*.
 ### 2.3 Non-goals
 
 - Not a full task manager / project tool. Reminders, not Jira.
-- No gamification (points/badges).
+- **No gamification** — points/rewards economy, badges, leaderboards, competitive
+  streaks, or **overdue penalties** (KidsChores/Sweepy/Nipto/OurHome). Motivation
+  mechanics for kids; noise for an adult household. (We keep the *audit log*, drop
+  the scoreboard.)
+- **No parent-approval / claim→approve** two-tier authority — the ack *is* completion.
+- **No inventory/pantry auto-consumption** (Grocy) — out of scope until reminders
+  couple to stock, if ever.
 - Not trying to replace Google Calendar as *her* surface — we integrate with it.
 - No dependence on room-level presence (it's unreliable here).
 
@@ -357,3 +363,119 @@ Each phase is independently useful and independently testable.
 6. **How much of `unified_notifications`' behavior to hard-depend on** — it's the
    default channel, but the engine should degrade to plain notify if it's absent
    (keeps the integration shareable).
+
+---
+
+## 16. Research-informed enhancements
+
+Folded in after comparing against Tody, Sweepy, Tidywell, OurHome, Grocy,
+KidsChores, Chore Helper, Home Maintenance, **Maintenance Supporter**, HomeRoutines,
+and Todoist. These *extend* the sections above.
+
+### 16.1 Accumulator / sensor-metered due — the differentiator (extends §6 condition)
+
+The single biggest idea most calendar-based apps lack (Maintenance Supporter does
+it): bind "due" to **real device data since last completion**, not a clock.
+Generalize the `condition` source into richer **due anchors**:
+
+```yaml
+condition:
+  mode: template | accumulator | threshold | counter | compound
+  # accumulator: integrate a value since last completion, fire at a limit
+  accumulator: {source: sensor.hvac_runtime_hours, limit: 450, reset_on_done: true}
+  # threshold: fire when a live sensor crosses (with hysteresis)
+  threshold:  {entity: sensor.filter_airflow_pct, below: 60}
+  # counter: fire every N cycles/uses (power-cycles, door-opens, dishwasher runs)
+  counter:    {entity: counter.dishwasher_runs, every: 30}
+  # compound: AND/OR across the above
+  auto_resolve: true    # auto-mark-done when the metric returns to normal
+```
+
+- **The AC filter becomes native**: `accumulator` over HVAC runtime with `limit`
+  and `reset_on_done` — no external accumulator automation, no Chore Helper. This
+  is exactly the F1/F8 case, first-class.
+- A `due_soon` threshold (e.g. 90% of limit) feeds the lead-time nudge (§16.3).
+
+### 16.2 Urgency-ranked *single* surfacing (extends §7 opportunity gate)
+
+Every reminder carries a continuous **`urgency`** attribute (fraction of interval
+elapsed, or overdue magnitude), and a 4-state ladder `ok → due_soon → overdue →
+triggered` (Maintenance Supporter), plus a **tolerance/window** rather than a hard
+date (Tody's "optimal day ± ~20%").
+
+**When an opportunity trigger fires, surface the single highest-urgency eligible
+reminder — not the whole pending list.** This is the biggest "hard to ignore
+without being annoying" lever: one thing, at a good moment, most-urgent-first.
+Batching handles the rest (§16.5). `urgency` also drives dashboard sort and the
+digest order.
+
+### 16.3 Softer, smarter lifecycle rungs (extends §7 state machine)
+
+- **`due_soon` (pre-due nudge)** + **`grace` window** *before* retry→escalate. First
+  contact is gentle ("coming up / just came due"), escalation only after grace.
+- **Single live instance — never stack overdue occurrences** (Tody). Completing a
+  late monthly reminder does **not** create a backlog; it re-anchors forward. One
+  active occurrence per reminder, always.
+- **Distinct completion verbs** (Chore Helper's date ops, generalized), each a service:
+  - `mark_done` — accept + re-anchor (compute next due).
+  - `complete_early` — accept now, re-anchor from now.
+  - `skip_occurrence` — drop *this* occurrence, no penalty, **don't** shift the anchor.
+  - `reschedule_next(id, date)` — move only the next due.
+  - `snooze(id, duration)` — back off, re-surface later (already in §9).
+  - `mark_undo(id)` — reverse the last completion (fat-finger insurance).
+
+### 16.4 Away / vacation freeze (extends §7 availability)
+
+Beyond presence-gating delivery: a global **away/vacation state that freezes
+interval progression and overdue accrual** (Maintenance Supporter), so you don't
+return from a trip to a wall of red for things that *couldn't* be done while gone.
+Distinct from quiet hours (which only withholds delivery).
+
+### 16.5 Digest + batching channel (extends §8 delivery)
+
+- **Batch simultaneously-due reminders into ONE announcement** rather than N
+  sequential Echo prompts — critical given single-Echo delivery. ("You have 3
+  things due: … Which did you do?" or surface the top one + "and 2 more".)
+- Optional **daily/weekly digest** of everything pending/overdue as a low-friction
+  complement to per-reminder nagging (Novu batching best-practice; Maintenance
+  Supporter weekly digest).
+
+### 16.6 History / audit log + fairness (new — extends §5, §9)
+
+- **Completion journal**: every done/skip/undo with `{ts, actor, ack_source}`.
+  Exposed via a service/event and (optionally) a `sensor` attribute. Grocy-style.
+  Cheap to add, painful to lack, and feeds fairness for free.
+- **Optional assignment + effort** (Grocy/OurHome/Tidywell): per-reminder
+  `assignee` + rotation policy (`round_robin | least_recently_done | fixed`) and an
+  `effort` weight (1–5). Track **cumulative effort per person**, not task count —
+  so "we each did 3" is honest when one did three 2-minute jobs. Optional even for
+  a two-person house; pairs with per-person notification routing.
+
+### 16.7 Seasonal activation (extends §5)
+
+Optional `active_months: [apr..oct]` gate so a reminder only *exists* in season
+(gutters, deck staining, AC vs. furnace filters) — Chore Helper start/end months.
+
+### 16.8 NFC / physical-tag ack (extends §8 ack routes)
+
+An NFC tag at the point of action (Grocy Grocycode; Home Maintenance thread) =
+completion **with proof-of-presence** — genuinely "hard to ignore" and screen-free.
+Add `tag` scan as another ack route converging on `mark_done`.
+
+### 16.9 Backlog / nice-to-haves (not phase-1)
+
+- **Seed `last_done` / first-due offset** on create so a new reminder doesn't fire
+  immediately (Chore Helper).
+- **Predicted next-due** for `after_completion`/accumulator reminders so the
+  calendar isn't blank ("fluid" estimate).
+- **Rotating focus zone** (HomeRoutines/FlyLady): a tag + weekly rotation cursor to
+  surface one area at a time.
+- **Completion metadata** (cost / duration / photo) → a maintenance record.
+- **Checklists / subtasks + `blocked_by` dependencies** (do X before Y).
+- **Quick-add natural language** as an alternate entry surface.
+
+### 16.10 Revised "top of build order"
+
+Fold into the Phase-1/2 plan (§14): **(A)** accumulator due anchor, **(B)** urgency-
+ranked single-surface, **(C)** audit log — the three highest-value additions, none
+previously in scope. Assignment/effort and away-freeze land in a later phase.
