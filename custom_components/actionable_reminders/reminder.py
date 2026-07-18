@@ -565,19 +565,29 @@ class ReminderRunner:
             volume = 0.6
             alexa_target = self.alexa_devices
         
-        # Send to mobile if configured
-        if self.mobile_service and self.actionable:
-            await self._send_mobile_actionable(prompt)
-        elif self.mobile_service:
-            await self._send_mobile_announce(prompt)
-        
-        # Send to Alexa if configured
-        if alexa_target:
-            if self.actionable:
-                await self._send_alexa_actionable(prompt, alexa_target, volume)
-            else:
-                await self._send_alexa_announce(prompt, alexa_target, volume)
-        
+        # Deliver the prompt. Preferred (default) channel: delegate to the proven
+        # script.unified_notifications, which owns the voice (single Echo) + mobile
+        # + actionable round-trip and calls back into our mark_done / dismiss
+        # services. This closes the ack loop the built-in sends leave open and
+        # provides Alexa voice-ack (which _send_alexa_actionable never implemented).
+        # Soft dependency: fall back to the built-in mobile/Alexa sends if the
+        # script is not present, so the integration stays shareable.
+        if self._use_unified_notifications():
+            await self._send_via_unified_notifications(prompt, volume)
+        else:
+            # Send to mobile if configured
+            if self.mobile_service and self.actionable:
+                await self._send_mobile_actionable(prompt)
+            elif self.mobile_service:
+                await self._send_mobile_announce(prompt)
+
+            # Send to Alexa if configured
+            if alexa_target:
+                if self.actionable:
+                    await self._send_alexa_actionable(prompt, alexa_target, volume)
+                else:
+                    await self._send_alexa_announce(prompt, alexa_target, volume)
+
         # Update state
         self._state[STATE_LAST_PROMPT] = now.isoformat()
         if self._state[STATE_ESCALATED]:
@@ -592,6 +602,65 @@ class ReminderRunner:
             self.hass,
             SIGNAL_REMINDER_UPDATE.format(self.entry_id),
         )
+
+    def _use_unified_notifications(self) -> bool:
+        """Whether to delegate delivery to script.unified_notifications.
+
+        Default channel when the script exists (soft dependency).
+        """
+        return self.hass.services.has_service("script", "unified_notifications")
+
+    async def _send_via_unified_notifications(self, message: str, volume: float) -> None:
+        """Delegate delivery to script.unified_notifications (default channel).
+
+        Voice on a single Echo + mobile + actionable; the Done / Not-yet buttons
+        (and Alexa voice "yes") call back into our mark_done / dismiss services,
+        so the acknowledgement loop is owned entirely by the script. Non-blocking
+        so the escalation timer is never held by the ack wait.
+        """
+        alexa_device = (
+            self.alexa_devices[0]
+            if self.alexa_devices
+            else "media_player.living_room_echo"
+        )
+        severity = "CRITICAL" if self._state[STATE_ESCALATED] else "TIME-SENSITIVE"
+        data = {
+            "method": "all",
+            "who": "all",
+            "alexa_device": alexa_device,
+            "alert_volume": volume,
+            "severity": severity,
+            "title": "🔔 Reminder",
+            "message": message,
+            "tag": f"ar_{self.entry_id}",
+        }
+        if self.actionable:
+            data.update(
+                {
+                    "confirm_text": "Done",
+                    "confirm_action": [
+                        {
+                            "action": f"{DOMAIN}.mark_done",
+                            "data": {"entry_id": self.entry_id},
+                        }
+                    ],
+                    "dismiss_text": "Not yet",
+                    "dismiss_action": [
+                        {
+                            "action": f"{DOMAIN}.dismiss",
+                            "data": {"entry_id": self.entry_id},
+                        }
+                    ],
+                }
+            )
+        try:
+            await self.hass.services.async_call(
+                "script", "unified_notifications", data, blocking=False
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error(
+                "unified_notifications delivery failed for %s: %s", self.name, e
+            )
 
     async def _send_mobile_actionable(self, message: str) -> None:
         """Send actionable notification to mobile."""
