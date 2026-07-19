@@ -576,11 +576,26 @@ class ReminderRunner:
         return None
 
     def _eval_due_template(self) -> bool:
-        """Render the condition source's due_template to a bool."""
+        """Render the condition source's due_template to a bool.
+
+        Exposes `days_since_done` (int; a large number if never done) and
+        `last_done` (ISO date string or None) to the template, so a condition
+        can combine an interval with a state check, e.g.
+        `{{ days_since_done >= 7 and temp > 55 }}`.
+        """
         if not self.due_template:
             return False
+        last_done = self._state.get(STATE_LAST_DONE)
+        days_since = 99999
+        if last_done:
+            try:
+                days_since = (dt_util.now().date() - date.fromisoformat(last_done)).days
+            except (TypeError, ValueError):
+                days_since = 99999
         try:
-            res = Template(self.due_template, self.hass).async_render()
+            res = Template(self.due_template, self.hass).async_render(
+                {"days_since_done": days_since, "last_done": last_done}
+            )
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("due_template error for %s: %s", self.name, e)
             return False
