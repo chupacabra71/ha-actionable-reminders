@@ -23,6 +23,7 @@ from .const import (
     CONF_SCHEDULE_TIME,
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
+    CONF_DUE_TEMPLATE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -295,6 +296,14 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
                 ),
             })
             
+        elif schedule_type == "condition":
+            data_schema = vol.Schema({
+                vol.Required(
+                    CONF_DUE_TEMPLATE,
+                    default=current_data.get(CONF_DUE_TEMPLATE, "")
+                ): selector.TemplateSelector(),
+            })
+
         elif schedule_type == "yearly":
             data_schema = vol.Schema({
                 vol.Required(

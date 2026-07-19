@@ -93,6 +93,10 @@ class RemindersTodoList(TodoListEntity):
             if not getattr(runner, "nag", True):
                 continue  # announce-only (e.g. birthdays) aren't to-do tasks
             done_today = runner.state_dict.get(STATE_LAST_DONE) == today
+            # Condition reminders only appear as tasks while actually due.
+            if getattr(runner, "schedule_type", "") == "condition":
+                if not (runner.is_condition_due() or done_today):
+                    continue
             items.append(
                 TodoItem(
                     uid=entry_id,

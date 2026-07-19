@@ -21,18 +21,21 @@ from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.template import Template
 from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
     SIGNAL_REMINDER_UPDATE,
     SIGNAL_REMINDERS_UPDATED,
+    EVENT_COMPLETED,
     CONF_REMINDER_NAME,
     CONF_ENABLED,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
+    CONF_DUE_TEMPLATE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -235,6 +238,7 @@ class ReminderRunner:
         self.nag = config.get(CONF_NAG, DEFAULT_NAG)
         self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
         self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
+        self.due_template = config.get(CONF_DUE_TEMPLATE)  # condition source
 
     async def async_reconfigure(self, config: dict[str, Any]) -> None:
         """Reconfigure the reminder with new settings."""
@@ -423,6 +427,11 @@ class ReminderRunner:
 
     def _is_scheduled(self, now: datetime) -> bool:
         """Check if current time matches the schedule."""
+        # Condition-based reminders are due whenever the template is truthy
+        # (no time-of-day gate).
+        if self.schedule_type == "condition":
+            return self._eval_due_template()
+
         # Parse schedule time
         hour, minute = map(int, self.schedule_time.split(":"))
         schedule_time = dt_time(hour, minute)
@@ -543,6 +552,8 @@ class ReminderRunner:
     @property
     def next_due_date(self) -> date | None:
         """The next date this reminder is due (for display), or None."""
+        if self.schedule_type == "condition":
+            return None  # no calendar date — driven by a template
         today = dt_util.now().date()
         done_today = self._state.get(STATE_LAST_DONE) == today.isoformat()
         if self.schedule_type == "once":
@@ -560,6 +571,23 @@ class ReminderRunner:
                     continue
                 return d
         return None
+
+    def _eval_due_template(self) -> bool:
+        """Render the condition source's due_template to a bool."""
+        if not self.due_template:
+            return False
+        try:
+            res = Template(self.due_template, self.hass).async_render()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("due_template error for %s: %s", self.name, e)
+            return False
+        if isinstance(res, bool):
+            return res
+        return str(res).strip().lower() in ("true", "on", "yes", "1")
+
+    def is_condition_due(self) -> bool:
+        """Whether a condition reminder is currently due (for the to-do list)."""
+        return self.schedule_type == "condition" and self._eval_due_template()
 
     def _in_quiet_hours(self, now: datetime) -> bool:
         """Check if current time is in quiet hours."""
@@ -982,6 +1010,11 @@ class ReminderRunner:
         # Send acknowledgment
         ack_msg = random.choice(self.ack_messages)
         await self._send_ack(ack_msg)
+
+        # Notify external listeners (e.g. HVAC-filter reset) of completion.
+        self.hass.bus.async_fire(
+            EVENT_COMPLETED, {"entry_id": self.entry_id, "name": self.name}
+        )
 
         # Refresh the aggregate to-do list; one-time reminders self-remove.
         async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)

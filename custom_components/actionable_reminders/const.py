@@ -29,6 +29,10 @@ SIGNAL_REMINDER_UPDATE = f"{DOMAIN}_reminder_update_{{}}"
 # aggregate entities (the to-do list) can re-render.
 SIGNAL_REMINDERS_UPDATED = f"{DOMAIN}_reminders_updated"
 
+# Fired on the bus when any reminder is marked done: {entry_id, name}. Lets
+# external automations react to completion (e.g. reset an HVAC-filter counter).
+EVENT_COMPLETED = f"{DOMAIN}_completed"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hub-Level Configuration (Global Defaults)
@@ -65,6 +69,7 @@ CONF_SCHEDULE_TYPE = "schedule_type"                             # "daily", "wee
 CONF_SCHEDULE_TIME = "schedule_time"                             # Time (HH:MM)
 CONF_ONCE_DATE = "once_date"                                     # One-time: target date (YYYY-MM-DD)
 CONF_ANNIVERSARY_DATE = "anniversary_date"                       # Yearly: date; MM-DD recurs, YYYY for age
+CONF_DUE_TEMPLATE = "due_template"                               # Condition: due while this Jinja renders truthy
 CONF_SCHEDULE_DAYS = "schedule_days"                             # Weekly: ["mon", "tue", ...]
 CONF_SCHEDULE_MONTHLY_TYPE = "schedule_monthly_type"             # "day" or "week_pattern"
 CONF_SCHEDULE_MONTHLY_DAY = "schedule_monthly_day"               # Day of month (1-31)
