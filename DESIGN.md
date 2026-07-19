@@ -133,17 +133,17 @@ messages:
 
 # ── Delivery ───────────────────────────────────────────────────────────────
 channel:          unified_notifications        # default
-who:              all                           # seb | ida | all
+who:              all                           # e.g. alice | bob | all
 actionable:       true
 alexa_device:     media_player.living_room_echo # SINGLE device for voice-ack
 announce_devices: []                            # optional synchronized awareness announce
 
 # ── Surfacing / nagging policy (hub defaults, per-reminder overrides) ───────
 opportunity_triggers:                           # "natural moments" to surface
-  - {entity: person.sebastian, to: home, for: "00:20:00"}
-  - {entity: person.ida,       to: home, for: "00:20:00"}
-  - {entity: media_player.big_tv_samsung_smart, from: "off"}
-  - {entity: binary_sensor.kitchen_motion_any,  to: "on"}
+  - {entity: person.alice, to: home, for: "00:20:00"}
+  - {entity: person.bob,   to: home, for: "00:20:00"}
+  - {entity: media_player.living_room_tv, from: "off"}
+  - {entity: binary_sensor.kitchen_motion, to: "on"}
 fixed_times:      ["19:00"]                      # clock fallback
 cooldown:         "03:00:00"
 escalation:
