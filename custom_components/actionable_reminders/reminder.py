@@ -1064,9 +1064,13 @@ class ReminderRunner:
         )
 
     async def async_force_prompt(self) -> None:
-        """Force an immediate prompt."""
+        """Force an immediate prompt (or announce, for non-nagging reminders)."""
         _LOGGER.info("Forcing prompt for reminder: %s", self.name)
-        await self._send_prompt(dt_util.now())
+        now = dt_util.now()
+        if not self.nag:
+            await self._send_announcement(now, offset=0)
+        else:
+            await self._send_prompt(now)
 
     # ────────────────────────────────────────────────────────────────────────────
     # Helper Methods
