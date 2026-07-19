@@ -21,6 +21,8 @@ from .const import (
     CONF_REMINDER_NAME,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
+    CONF_ONCE_DATE,
+    CONF_ANNIVERSARY_DATE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -43,6 +45,8 @@ from .const import (
     CONF_QUIET_END,
     CONF_OPTIONAL,
     CONF_UNTIL_DONE,
+    CONF_NAG,
+    CONF_LEAD_TIMES,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
@@ -65,6 +69,7 @@ from .const import (
     DEFAULT_QUIET_START,
     DEFAULT_QUIET_END,
     DEFAULT_OPTIONAL,
+    DEFAULT_NAG,
     DEFAULT_UNTIL_DONE,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
@@ -290,6 +295,30 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
                 ),
             })
             
+        elif schedule_type == "yearly":
+            data_schema = vol.Schema({
+                vol.Required(
+                    CONF_ANNIVERSARY_DATE,
+                    default=current_data.get(CONF_ANNIVERSARY_DATE)
+                ): selector.DateSelector(),
+                vol.Required(
+                    CONF_SCHEDULE_TIME,
+                    default=current_data.get(CONF_SCHEDULE_TIME, "09:00")
+                ): selector.TimeSelector(),
+            })
+
+        elif schedule_type == "once":
+            data_schema = vol.Schema({
+                vol.Required(
+                    CONF_ONCE_DATE,
+                    default=current_data.get(CONF_ONCE_DATE)
+                ): selector.DateSelector(),
+                vol.Required(
+                    CONF_SCHEDULE_TIME,
+                    default=current_data.get(CONF_SCHEDULE_TIME, "09:00")
+                ): selector.TimeSelector(),
+            })
+
         else:  # monthly
             monthly_type = current_data.get(CONF_SCHEDULE_MONTHLY_TYPE, "day")
             
@@ -588,23 +617,41 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
     # ────────────────────────────────────────────────────────────────────────────
 
     async def async_step_edit_behavior(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Edit behavior flags."""
+        """Edit behavior flags (nag, lead-time heads-ups, optional, until-done)."""
         if user_input is not None:
-            # Update config entry
+            processed = dict(user_input)
+            # Parse lead-time days ("30, 7, 1") -> sorted list[int]
+            lead_text = str(processed.pop("lead_times_text", "") or "")
+            days = {
+                int(tok) for tok in lead_text.replace(",", " ").split()
+                if tok.isdigit()
+            }
+            processed[CONF_LEAD_TIMES] = sorted(days, reverse=True)
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
-                data={**self.config_entry.data, **user_input}
+                data={**self.config_entry.data, **processed}
             )
             return self.async_create_entry(title="", data={})
 
         current_data = self.config_entry.data
-        
+        lead_text = ", ".join(str(x) for x in current_data.get(CONF_LEAD_TIMES, []))
+
         data_schema = vol.Schema({
+            vol.Required(
+                CONF_NAG,
+                default=current_data.get(CONF_NAG, DEFAULT_NAG)
+            ): bool,
+
+            vol.Optional(
+                "lead_times_text",
+                default=lead_text
+            ): selector.TextSelector(),
+
             vol.Required(
                 CONF_OPTIONAL,
                 default=current_data.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)
             ): bool,
-            
+
             vol.Required(
                 CONF_UNTIL_DONE,
                 default=current_data.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)
@@ -615,7 +662,8 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
             step_id="edit_behavior",
             data_schema=data_schema,
             description_placeholders={
-                "optional": "Optional reminders can be skipped/dismissed without consequence.",
+                "optional": "Nag = keep prompting after due until acknowledged (off = a single announce). "
+                            "Lead times = days before due to send heads-up announcements, e.g. '30, 7, 1'.",
                 "until_done": "Keeps prompting daily until marked as done."
             }
         )
