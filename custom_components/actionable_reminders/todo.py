@@ -8,7 +8,7 @@ reminder next comes due. This is the primary at-a-glance / Assist-voice surface.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 import logging
 
 from homeassistant.components.todo import (
@@ -17,13 +17,21 @@ from homeassistant.components.todo import (
     TodoListEntity,
     TodoListEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SIGNAL_REMINDERS_UPDATED, STATE_LAST_DONE
+from .const import (
+    CONF_ONCE_DATE,
+    CONF_REMINDER_NAME,
+    CONF_SCHEDULE_TIME,
+    CONF_SCHEDULE_TYPE,
+    DOMAIN,
+    SIGNAL_REMINDERS_UPDATED,
+    STATE_LAST_DONE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,11 +52,16 @@ async def async_setup_entry(
 class RemindersTodoList(TodoListEntity):
     """A single to-do list mirroring all reminders."""
 
-    _attr_has_entity_name = True
+    _attr_has_entity_name = False
     _attr_name = "Reminders"
     _attr_icon = "mdi:bell-ring"
     _attr_should_poll = True
-    _attr_supported_features = TodoListEntityFeature.UPDATE_TODO_ITEM
+    _attr_supported_features = (
+        TodoListEntityFeature.CREATE_TODO_ITEM
+        | TodoListEntityFeature.UPDATE_TODO_ITEM
+        | TodoListEntityFeature.DELETE_TODO_ITEM
+        | TodoListEntityFeature.SET_DUE_DATE_ON_ITEM
+    )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the list."""
@@ -98,6 +111,41 @@ class RemindersTodoList(TodoListEntity):
             return
         if item.status == TodoItemStatus.COMPLETED:
             await runner.async_mark_done()
+        self.async_write_ha_state()
+
+    async def async_create_todo_item(self, item: TodoItem) -> None:
+        """Quick-add from the list -> create a one-time reminder.
+
+        The item's due (date or datetime) becomes the one-time target; with no
+        due, it targets today at the current time so it surfaces promptly.
+        """
+        now = dt_util.now()
+        once_date = now.date().isoformat()
+        schedule_time = now.strftime("%H:%M")
+        due = item.due
+        if isinstance(due, datetime):
+            once_date = due.date().isoformat()
+            schedule_time = due.strftime("%H:%M")
+        elif isinstance(due, date):
+            once_date = due.isoformat()
+
+        await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_IMPORT},
+            data={
+                CONF_REMINDER_NAME: item.summary,
+                "message": item.summary,
+                CONF_SCHEDULE_TYPE: "once",
+                CONF_SCHEDULE_TIME: schedule_time,
+                CONF_ONCE_DATE: once_date,
+            },
+        )
+        self.async_write_ha_state()
+
+    async def async_delete_todo_items(self, uids: list[str]) -> None:
+        """Delete items -> remove those reminders entirely."""
+        for uid in uids:
+            await self.hass.config_entries.async_remove(uid)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:

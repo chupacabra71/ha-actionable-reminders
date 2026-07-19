@@ -24,6 +24,7 @@ from .const import (
     CONF_REMINDER_NAME,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
+    CONF_ONCE_DATE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -183,6 +184,7 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {"label": "Daily", "value": "daily"},
                         {"label": "Weekly", "value": "weekly"},
                         {"label": "Monthly", "value": "monthly"},
+                        {"label": "One-time", "value": "once"},
                     ],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
@@ -232,6 +234,12 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
             })
             
+        elif schedule_type == "once":
+            data_schema = vol.Schema({
+                vol.Required(CONF_ONCE_DATE): selector.DateSelector(),
+                vol.Required(CONF_SCHEDULE_TIME, default="09:00"): selector.TimeSelector(),
+            })
+
         else:  # monthly
             data_schema = vol.Schema({
                 vol.Required(CONF_SCHEDULE_TIME, default="09:00"): selector.TimeSelector(),
@@ -331,6 +339,9 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Add schedule-specific fields
         if self._data[CONF_SCHEDULE_TYPE] == "weekly":
             config[CONF_SCHEDULE_DAYS] = self._data.get(CONF_SCHEDULE_DAYS, [])
+
+        elif self._data[CONF_SCHEDULE_TYPE] == "once":
+            config[CONF_ONCE_DATE] = self._data.get(CONF_ONCE_DATE)
         
         elif self._data[CONF_SCHEDULE_TYPE] == "monthly":
             config[CONF_SCHEDULE_MONTHLY_TYPE] = self._data.get(CONF_SCHEDULE_MONTHLY_TYPE)
@@ -348,6 +359,32 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data=config,
             description="Using hub defaults. Configure via options to customize notifications, retry behavior, and more.",
         )
+
+    async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
+        """Create a reminder programmatically (e.g. quick-add from the to-do list).
+
+        Expects reminder_name (+ optional message, schedule_type default "once",
+        schedule_time, once_date). Everything else falls back to hub defaults.
+        """
+        schedule_type = import_data.get(CONF_SCHEDULE_TYPE, "once")
+        name = import_data[CONF_REMINDER_NAME]
+        message = import_data.get("message", name)
+
+        config = {
+            "type": CONF_TYPE_REMINDER,
+            CONF_REMINDER_NAME: name,
+            CONF_SCHEDULE_TYPE: schedule_type,
+            CONF_SCHEDULE_TIME: import_data.get(CONF_SCHEDULE_TIME, "09:00"),
+            CONF_PROMPT_MESSAGES: [message],
+            CONF_ACK_MESSAGES: DEFAULT_ACK_MESSAGES,
+            CONF_DISMISS_MESSAGES: DEFAULT_DISMISS_MESSAGES,
+        }
+        if schedule_type == "once":
+            config[CONF_ONCE_DATE] = import_data.get(CONF_ONCE_DATE)
+        elif schedule_type == "weekly":
+            config[CONF_SCHEDULE_DAYS] = import_data.get(CONF_SCHEDULE_DAYS, [])
+
+        return self.async_create_entry(title=name, data=config)
 
     @staticmethod
     @callback

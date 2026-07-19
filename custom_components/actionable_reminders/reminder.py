@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import calendar
 import random
-from datetime import datetime, time as dt_time, timedelta
+from datetime import date, datetime, time as dt_time, timedelta
 import logging
 from typing import Any
 
@@ -26,10 +26,12 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     SIGNAL_REMINDER_UPDATE,
+    SIGNAL_REMINDERS_UPDATED,
     CONF_REMINDER_NAME,
     CONF_ENABLED,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
+    CONF_ONCE_DATE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -157,6 +159,7 @@ class ReminderRunner:
         # Schedule configuration
         self.schedule_type = config.get(CONF_SCHEDULE_TYPE, "daily")
         self.schedule_time = config.get(CONF_SCHEDULE_TIME, "09:00")
+        self.once_date = config.get(CONF_ONCE_DATE)  # one-time target date
         self.schedule_days = config.get(CONF_SCHEDULE_DAYS, [])
         self.schedule_monthly_type = config.get(CONF_SCHEDULE_MONTHLY_TYPE)
         self.schedule_monthly_day = config.get(CONF_SCHEDULE_MONTHLY_DAY)
@@ -428,6 +431,16 @@ class ReminderRunner:
         
         elif self.schedule_type == "monthly":
             return self._is_scheduled_monthly(now)
+
+        elif self.schedule_type == "once":
+            if not self.once_date:
+                return False
+            try:
+                target = date.fromisoformat(self.once_date)
+            except (TypeError, ValueError):
+                return False
+            # Due on or after the target date (time-of-day gate already applied).
+            return now.date() >= target
         
         return False
 
@@ -773,6 +786,13 @@ class ReminderRunner:
         # Send acknowledgment
         ack_msg = random.choice(self.ack_messages)
         await self._send_ack(ack_msg)
+
+        # Refresh the aggregate to-do list; one-time reminders self-remove.
+        async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
+        if self.schedule_type == "once":
+            self.hass.async_create_task(
+                self.hass.config_entries.async_remove(self.entry_id)
+            )
         
         # Notify switch entity
         async_dispatcher_send(
