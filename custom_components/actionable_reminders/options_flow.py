@@ -172,7 +172,7 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
             # Notification defaults
             vol.Optional(
                 CONF_DEFAULT_MOBILE_SERVICE,
-                default=current_data.get(CONF_DEFAULT_MOBILE_SERVICE)
+                description={"suggested_value": current_data.get(CONF_DEFAULT_MOBILE_SERVICE)},
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=notify_services,
