@@ -32,6 +32,7 @@ from .const import (
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
     CONF_ONCE_DATE,
+    CONF_ANNIVERSARY_DATE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -54,6 +55,8 @@ from .const import (
     CONF_QUIET_END,
     CONF_OPTIONAL,
     CONF_UNTIL_DONE,
+    CONF_LEAD_TIMES,
+    CONF_NAG,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
@@ -67,6 +70,7 @@ from .const import (
     CONF_DEFAULT_QUIET_END,
     STATE_LAST_PROMPT,
     STATE_LAST_DONE,
+    STATE_LAST_LEAD_DATE,
     STATE_RETRIES_TODAY,
     STATE_ESCALATED,
     STATE_ESCALATIONS_TODAY,
@@ -83,6 +87,8 @@ from .const import (
     DEFAULT_QUIET_END,
     DEFAULT_OPTIONAL,
     DEFAULT_UNTIL_DONE,
+    DEFAULT_LEAD_TIMES,
+    DEFAULT_NAG,
     DEFAULT_ENABLED,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
@@ -226,6 +232,9 @@ class ReminderRunner:
         # Behavior flags
         self.optional = config.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)
         self.until_done = config.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)
+        self.nag = config.get(CONF_NAG, DEFAULT_NAG)
+        self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
+        self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
 
     async def async_reconfigure(self, config: dict[str, Any]) -> None:
         """Reconfigure the reminder with new settings."""
@@ -360,7 +369,10 @@ class ReminderRunner:
         
         # Reset daily state at midnight
         await self._check_daily_reset(now)
-        
+
+        # Pre-notifications (lead-time heads-ups) — independent of the due nag
+        await self._maybe_send_lead_announcement(now)
+
         # Check if reminder is due for prompting
         if self._is_due(now):
             await self._handle_due_reminder(now)
@@ -432,6 +444,9 @@ class ReminderRunner:
         elif self.schedule_type == "monthly":
             return self._is_scheduled_monthly(now)
 
+        elif self.schedule_type == "yearly":
+            return self._date_matches_schedule(now.date())
+
         elif self.schedule_type == "once":
             if not self.once_date:
                 return False
@@ -485,6 +500,14 @@ class ReminderRunner:
             return WEEKDAYS[d.weekday()] in self.schedule_days
         if self.schedule_type == "monthly":
             return self._date_matches_monthly(d)
+        if self.schedule_type == "yearly":
+            if not self.anniversary_date:
+                return False
+            try:
+                a = date.fromisoformat(self.anniversary_date)
+            except (TypeError, ValueError):
+                return False
+            return (d.month, d.day) == (a.month, a.day)
         if self.schedule_type == "once":
             return self.once_date == d.isoformat()
         return False
@@ -599,6 +622,18 @@ class ReminderRunner:
 
     async def _handle_due_reminder(self, now: datetime) -> None:
         """Handle a reminder that is due for prompting."""
+        # Non-nagging reminders: one announce at due, then auto-complete
+        # (no retry/escalation, nothing to acknowledge).
+        if not self.nag:
+            await self._send_announcement(now, offset=0)
+            self._state[STATE_LAST_DONE] = now.date().isoformat()
+            await self._save_state()
+            async_dispatcher_send(
+                self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
+            )
+            async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
+            return
+
         retries = self._state[STATE_RETRIES_TODAY]
         escalations = self._state[STATE_ESCALATIONS_TODAY]
         
@@ -615,6 +650,106 @@ class ReminderRunner:
         
         # Send the prompt
         await self._send_prompt(now)
+
+    async def _maybe_send_lead_announcement(self, now: datetime) -> None:
+        """Fire one informational heads-up if today is a lead-time day."""
+        if not self.lead_times:
+            return
+        today = now.date()
+        if self._state.get(STATE_LAST_LEAD_DATE) == today.isoformat():
+            return
+        try:
+            hour, minute = map(int, self.schedule_time.split(":"))
+        except (ValueError, AttributeError):
+            hour, minute = 9, 0
+        if now.time() < dt_time(hour, minute):
+            return
+        if self._in_quiet_hours(now) or not self._presence_satisfied():
+            return
+        for offset in sorted((o for o in self.lead_times if o and o > 0), reverse=True):
+            if self._date_matches_schedule(today + timedelta(days=offset)):
+                await self._send_announcement(now, offset=offset)
+                self._state[STATE_LAST_LEAD_DATE] = today.isoformat()
+                await self._save_state()
+                async_dispatcher_send(
+                    self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
+                )
+                return
+
+    def _humanize_offset(self, offset: int) -> str:
+        """Human phrase for a lead-time offset in days."""
+        if offset <= 0:
+            return "today"
+        if offset == 1:
+            return "tomorrow"
+        if offset == 7:
+            return "in a week"
+        if offset == 14:
+            return "in two weeks"
+        if offset in (30, 31):
+            return "in a month"
+        if offset % 7 == 0:
+            return f"in {offset // 7} weeks"
+        return f"in {offset} days"
+
+    def _yearly_age(self, now: datetime) -> int | None:
+        """Age at the next anniversary (yearly reminders with a birth year)."""
+        if self.schedule_type != "yearly" or not self.anniversary_date:
+            return None
+        try:
+            a = date.fromisoformat(self.anniversary_date)
+        except (TypeError, ValueError):
+            return None
+        today = now.date()
+        year = today.year if (a.month, a.day) >= (today.month, today.day) else today.year + 1
+        return year - a.year
+
+    async def _send_announcement(self, now: datetime, offset: int = 0) -> None:
+        """Send one informational (non-actionable) announcement.
+
+        offset > 0 → a lead-time heads-up; offset 0 → the due-day announce for a
+        non-nagging reminder.
+        """
+        if offset > 0:
+            message = f"⏰ {self.name} — {self._humanize_offset(offset)}"
+        elif self.schedule_type == "yearly":
+            age = self._yearly_age(now)
+            message = f"🎂 {self.name} is today"
+            if age is not None:
+                message += f" — turning {age}"
+            message += "!"
+        elif self.prompt_messages:
+            message = random.choice(self.prompt_messages)
+        else:
+            message = f"🔔 {self.name}"
+        _LOGGER.info("Announcing for %s: %s", self.name, message)
+        await self._announce(message)
+
+    async def _announce(self, message: str) -> None:
+        """Deliver a non-actionable announcement (prefer unified_notifications)."""
+        if self._use_unified_notifications():
+            data = {
+                "method": "all",
+                "who": "all",
+                "severity": "INFO",
+                "title": "🔔 Reminder",
+                "message": message,
+                "tag": f"ar_{self.entry_id}",
+            }
+            if self.alexa_devices:
+                data["alexa_device"] = self.alexa_devices[0]
+            try:
+                await self.hass.services.async_call(
+                    "script", "unified_notifications", data, blocking=False
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("Announcement failed for %s: %s", self.name, e)
+            return
+        # Fallbacks when the script isn't present.
+        if self.mobile_service:
+            await self._send_mobile_announce(message)
+        if self.alexa_devices:
+            await self._send_alexa_announce(message, self.alexa_devices, 0.4)
 
     async def _send_prompt(self, now: datetime) -> None:
         """Send a reminder prompt."""

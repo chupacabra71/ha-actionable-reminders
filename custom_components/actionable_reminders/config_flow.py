@@ -25,6 +25,9 @@ from .const import (
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
     CONF_ONCE_DATE,
+    CONF_ANNIVERSARY_DATE,
+    CONF_LEAD_TIMES,
+    CONF_NAG,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -184,6 +187,7 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {"label": "Daily", "value": "daily"},
                         {"label": "Weekly", "value": "weekly"},
                         {"label": "Monthly", "value": "monthly"},
+                        {"label": "Yearly", "value": "yearly"},
                         {"label": "One-time", "value": "once"},
                     ],
                     mode=selector.SelectSelectorMode.DROPDOWN,
@@ -234,6 +238,12 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
             })
             
+        elif schedule_type == "yearly":
+            data_schema = vol.Schema({
+                vol.Required(CONF_ANNIVERSARY_DATE): selector.DateSelector(),
+                vol.Required(CONF_SCHEDULE_TIME, default="09:00"): selector.TimeSelector(),
+            })
+
         elif schedule_type == "once":
             data_schema = vol.Schema({
                 vol.Required(CONF_ONCE_DATE): selector.DateSelector(),
@@ -342,6 +352,13 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         elif self._data[CONF_SCHEDULE_TYPE] == "once":
             config[CONF_ONCE_DATE] = self._data.get(CONF_ONCE_DATE)
+
+        elif self._data[CONF_SCHEDULE_TYPE] == "yearly":
+            config[CONF_ANNIVERSARY_DATE] = self._data.get(CONF_ANNIVERSARY_DATE)
+            # Yearly reminders (birthdays/anniversaries) announce with lead-time
+            # heads-ups and don't nag, by default.
+            config.setdefault(CONF_NAG, False)
+            config.setdefault(CONF_LEAD_TIMES, [30, 7, 1])
         
         elif self._data[CONF_SCHEDULE_TYPE] == "monthly":
             config[CONF_SCHEDULE_MONTHLY_TYPE] = self._data.get(CONF_SCHEDULE_MONTHLY_TYPE)
@@ -379,8 +396,14 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_ACK_MESSAGES: DEFAULT_ACK_MESSAGES,
             CONF_DISMISS_MESSAGES: DEFAULT_DISMISS_MESSAGES,
         }
+        if CONF_LEAD_TIMES in import_data:
+            config[CONF_LEAD_TIMES] = import_data[CONF_LEAD_TIMES]
+        if CONF_NAG in import_data:
+            config[CONF_NAG] = import_data[CONF_NAG]
         if schedule_type == "once":
             config[CONF_ONCE_DATE] = import_data.get(CONF_ONCE_DATE)
+        elif schedule_type == "yearly":
+            config[CONF_ANNIVERSARY_DATE] = import_data.get(CONF_ANNIVERSARY_DATE)
         elif schedule_type == "weekly":
             config[CONF_SCHEDULE_DAYS] = import_data.get(CONF_SCHEDULE_DAYS, [])
 

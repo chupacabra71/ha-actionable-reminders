@@ -64,6 +64,7 @@ CONF_ENABLED = "enabled"                                         # Active flag
 CONF_SCHEDULE_TYPE = "schedule_type"                             # "daily", "weekly", "monthly"
 CONF_SCHEDULE_TIME = "schedule_time"                             # Time (HH:MM)
 CONF_ONCE_DATE = "once_date"                                     # One-time: target date (YYYY-MM-DD)
+CONF_ANNIVERSARY_DATE = "anniversary_date"                       # Yearly: date; MM-DD recurs, YYYY for age
 CONF_SCHEDULE_DAYS = "schedule_days"                             # Weekly: ["mon", "tue", ...]
 CONF_SCHEDULE_MONTHLY_TYPE = "schedule_monthly_type"             # "day" or "week_pattern"
 CONF_SCHEDULE_MONTHLY_DAY = "schedule_monthly_day"               # Day of month (1-31)
@@ -96,6 +97,8 @@ CONF_QUIET_END = "quiet_end"                                     # Quiet hours e
 # Behavior flags
 CONF_OPTIONAL = "optional"                                       # Optional reminder (can auto-skip)
 CONF_UNTIL_DONE = "until_done"                                   # Keep prompting until marked done
+CONF_LEAD_TIMES = "lead_times"                                   # Pre-notification offsets (days before due)
+CONF_NAG = "nag"                                                 # Post-due nag-until-done (False = single announce)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -104,6 +107,7 @@ CONF_UNTIL_DONE = "until_done"                                   # Keep promptin
 
 STATE_LAST_PROMPT = "last_prompt_ts"                             # ISO timestamp of last prompt
 STATE_LAST_DONE = "last_done_date"                               # Date last marked done (YYYY-MM-DD)
+STATE_LAST_LEAD_DATE = "last_lead_date"                          # Date a lead-time announce last fired
 STATE_RETRIES_TODAY = "retries_today"                            # Number of retry attempts today
 STATE_ESCALATED = "escalated"                                    # Whether currently escalated
 STATE_ESCALATIONS_TODAY = "escalations_today"                    # Number of escalations today
@@ -121,6 +125,8 @@ DEFAULT_ESCALATION_INTERVAL = 15                                 # 15 minutes du
 DEFAULT_MAX_ESCALATIONS = 5                                      # 5 escalations before auto-skip
 DEFAULT_EARLIEST_RETRY_TIME = "10:00"                            # Restart at 10 AM after auto-skip
 DEFAULT_ACTIONABLE = True                                        # Actionable by default
+DEFAULT_LEAD_TIMES = []                                          # No pre-notifications by default
+DEFAULT_NAG = True                                               # Nag until done by default
 DEFAULT_QUIET_START = "22:00"                                    # 10 PM
 DEFAULT_QUIET_END = "08:00"                                      # 8 AM
 

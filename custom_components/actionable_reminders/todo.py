@@ -90,6 +90,8 @@ class RemindersTodoList(TodoListEntity):
         for entry_id, runner in self._runners().items():
             if not getattr(runner, "is_enabled", True):
                 continue
+            if not getattr(runner, "nag", True):
+                continue  # announce-only (e.g. birthdays) aren't to-do tasks
             done_today = runner.state_dict.get(STATE_LAST_DONE) == today
             items.append(
                 TodoItem(
