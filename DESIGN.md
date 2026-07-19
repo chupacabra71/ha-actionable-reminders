@@ -276,18 +276,25 @@ script.unified_notifications(
 
 ## 10. Google Calendar integration (the calendar-user's surface)
 
-Two-way, HA-native (read-write Google Calendar integration).
+HA-native read-write Google Calendar integration. **Finalized 2026-07-19.**
 
-- **Inbound (they create):** a dedicated shared **"Reminders"** calendar — *any*
-  event on it becomes a reminder (no tag discipline); recurring events (RRULE)
-  become recurring reminders. They add on their phone, get Google's native
-  notification *and* the engine's voice/mobile nagging.
-- **Outbound (engine writes):** condition-based and derived reminders (e.g. "AC
-  filter due", next scheduled occurrence) are written to the shared calendar so
-  they see them; on `done`, the event is updated/removed.
-- **Completion from their side:** deleting/completing the event → `mark_done`
-  (calendar source watches for the event disappearing); or they just answer the
-  voice/mobile prompt like anyone else.
+- **A native `calendar` source inside the integration** (no bridge automation).
+  The engine *reads* the dedicated shared **"Reminders"** calendar and treats each
+  event as a **transient reminder keyed by the event UID** — it does NOT create a
+  config entry per event (calendar stays authoritative; no entry churn).
+- **Inbound (they create):** *any* event on that one calendar becomes a reminder —
+  no tags/keywords. Event **title** → reminder text; **date/time** → due moment
+  (all-day → that morning; timed → at that time). Look-ahead window ~60 days.
+- **Scope, phase 1:** **one-off events only.** Recurring (RRULE) events + per-instance
+  completion are a follow-up.
+- **Nagging:** default **day-before heads-up + day-of** actionable nag (reuses
+  lead_times + nag). They also get Google's native notification (bonus).
+- **Completion = MARK complete, not delete** (keep a history on the calendar):
+  - Answer the engine (voice "done" / mobile tap / to-do check) → engine updates the
+    event, prefixing the title with **`✅`**. A `✅`-prefixed event is no longer nagged.
+  - If they delete/remove the event on their phone → engine sees it gone → stops nagging.
+- **Outbound (engine → calendar): DEFERRED** to a follow-up (write derived reminders
+  like "A/C filter due" onto the calendar). Inbound is the core value.
 
 ---
 
