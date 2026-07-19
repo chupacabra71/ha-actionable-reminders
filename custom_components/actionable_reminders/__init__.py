@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
@@ -27,13 +28,16 @@ from .const import (
     SERVICE_DISMISS,
     SERVICE_SKIP_TODAY,
     SERVICE_FORCE_PROMPT,
+    SIGNAL_REMINDERS_UPDATED,
 )
 from .reminder import ReminderRunner
 
 _LOGGER = logging.getLogger(__name__)
 
-# Platforms to set up
+# Platforms set up on a reminder entry (per-reminder switch) and on the hub
+# entry (the aggregate to-do list), respectively.
 PLATFORMS = [Platform.SWITCH]
+HUB_PLATFORMS = [Platform.TODO]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -99,7 +103,10 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Setup update listener for hub config changes
     entry.async_on_unload(entry.add_update_listener(_hub_update_listener))
-    
+
+    # Set up hub-level platforms (the aggregate Reminders to-do list)
+    await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
+
     _LOGGER.info("Actionable Reminders hub setup complete")
     return True
 
@@ -135,7 +142,10 @@ async def _setup_reminder(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Setup switch platform (creates switch entity)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
+
+    # Refresh the aggregate to-do list (a reminder was added)
+    async_dispatcher_send(hass, SIGNAL_REMINDERS_UPDATED)
+
     # Setup update listener for reminder config changes
     entry.async_on_unload(entry.add_update_listener(_reminder_update_listener))
     
@@ -178,7 +188,10 @@ async def _unload_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         True if successful
     """
     _LOGGER.info("Unloading Actionable Reminders hub")
-    
+
+    # Unload hub-level platforms (to-do list) before dropping hub data
+    await hass.config_entries.async_unload_platforms(entry, HUB_PLATFORMS)
+
     # Stop all reminder runners
     if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
         reminders = hass.data[DOMAIN]["hub"]["reminders"]
@@ -212,7 +225,11 @@ async def _unload_reminder(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Unload switch platform
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    
+
+    # Refresh the aggregate to-do list (a reminder was removed)
+    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
+        async_dispatcher_send(hass, SIGNAL_REMINDERS_UPDATED)
+
     _LOGGER.info("Reminder unloaded: %s", entry.title)
     return unload_ok
 

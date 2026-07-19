@@ -25,6 +25,10 @@ CONF_TYPE_REMINDER = "reminder"           # Individual reminder type
 # Dispatcher signals (use .format(entry_id) when dispatching)
 SIGNAL_REMINDER_UPDATE = f"{DOMAIN}_reminder_update_{{}}"
 
+# Fired (no args) when the set of reminders changes or any reminder updates, so
+# aggregate entities (the to-do list) can re-render.
+SIGNAL_REMINDERS_UPDATED = f"{DOMAIN}_reminders_updated"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hub-Level Configuration (Global Defaults)
