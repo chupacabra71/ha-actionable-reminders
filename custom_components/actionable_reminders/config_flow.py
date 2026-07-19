@@ -358,9 +358,9 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Return appropriate options flow based on entry type
         if config_entry.data.get("type") == CONF_TYPE_HUB:
-            return ActionableRemindersHubOptionsFlow(config_entry)
+            return ActionableRemindersHubOptionsFlow()
         else:
-            return ActionableRemindersReminderOptionsFlow(config_entry)
+            return ActionableRemindersReminderOptionsFlow()
 
 
 # Home Assistant expects "ConfigFlow" as the class name

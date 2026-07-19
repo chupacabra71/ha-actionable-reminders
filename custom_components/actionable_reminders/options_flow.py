@@ -116,9 +116,8 @@ def _get_presence_sensors(hass) -> list[str]:
 class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for hub (global defaults)."""
 
-    def __init__(self, config_entry):
-        """Initialize hub options flow."""
-        self.config_entry = config_entry
+    # No __init__: `config_entry` is a framework-provided property on OptionsFlow
+    # in modern HA — assigning it raises. HA binds it from async_get_options_flow.
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Manage hub options."""
@@ -228,9 +227,7 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
 class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for individual reminders."""
 
-    def __init__(self, config_entry):
-        """Initialize reminder options flow."""
-        self.config_entry = config_entry
+    # No __init__: see note on the hub options flow above.
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Show menu of options to configure."""
