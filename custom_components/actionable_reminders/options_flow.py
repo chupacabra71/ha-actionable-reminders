@@ -56,6 +56,7 @@ from .const import (
     CONF_EARLIEST_RETRY_TIME,
     CONF_DEFAULT_MOBILE_SERVICE,
     CONF_DEFAULT_ALEXA_DEVICES,
+    CONF_REMINDERS_CALENDAR,
     CONF_DEFAULT_ACTIONABLE,
     CONF_DEFAULT_PRESENCE_SENSORS,
     CONF_DEFAULT_QUIET_START,
@@ -188,7 +189,15 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
-            
+
+            # Calendar source: every event on this calendar becomes a reminder
+            vol.Optional(
+                CONF_REMINDERS_CALENDAR,
+                description={"suggested_value": current_data.get(CONF_REMINDERS_CALENDAR)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="calendar")
+            ),
+
             vol.Required(
                 CONF_DEFAULT_ACTIONABLE,
                 default=current_data.get(CONF_DEFAULT_ACTIONABLE, DEFAULT_ACTIONABLE)

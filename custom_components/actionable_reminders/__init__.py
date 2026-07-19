@@ -24,13 +24,16 @@ from .const import (
     DOMAIN,
     CONF_TYPE_HUB,
     CONF_TYPE_REMINDER,
+    CONF_REMINDERS_CALENDAR,
     SERVICE_MARK_DONE,
     SERVICE_DISMISS,
     SERVICE_SKIP_TODAY,
     SERVICE_FORCE_PROMPT,
+    SERVICE_CALENDAR_ACK,
     SIGNAL_REMINDERS_UPDATED,
 )
 from .reminder import ReminderRunner
+from .calendar_source import CalendarSource
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +106,14 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Setup update listener for hub config changes
     entry.async_on_unload(entry.add_update_listener(_hub_update_listener))
+
+    # Calendar source (optional) — watches a calendar and drives reminders.
+    hass.data[DOMAIN]["hub"]["calendar_source"] = None
+    calendar_entity = entry.data.get(CONF_REMINDERS_CALENDAR)
+    if calendar_entity:
+        source = CalendarSource(hass, calendar_entity, dict(entry.data))
+        hass.data[DOMAIN]["hub"]["calendar_source"] = source
+        await source.async_start()
 
     # Set up hub-level platforms (the aggregate Reminders to-do list)
     await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
@@ -192,6 +203,12 @@ async def _unload_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Unload hub-level platforms (to-do list) before dropping hub data
     await hass.config_entries.async_unload_platforms(entry, HUB_PLATFORMS)
 
+    # Stop the calendar source
+    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
+        source = hass.data[DOMAIN]["hub"].get("calendar_source")
+        if source:
+            await source.async_stop()
+
     # Stop all reminder runners
     if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
         reminders = hass.data[DOMAIN]["hub"]["reminders"]
@@ -254,6 +271,20 @@ async def _hub_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
         # Notify all reminder runners of hub config change
         for runner in hass.data[DOMAIN]["hub"]["reminders"].values():
             await runner.async_update_hub_config(dict(entry.data))
+
+        # Recreate the calendar source if the watched calendar changed.
+        hub = hass.data[DOMAIN]["hub"]
+        old = hub.get("calendar_source")
+        old_cal = old.calendar_entity if old else None
+        new_cal = entry.data.get(CONF_REMINDERS_CALENDAR)
+        if new_cal != old_cal:
+            if old:
+                await old.async_stop()
+            hub["calendar_source"] = None
+            if new_cal:
+                source = CalendarSource(hass, new_cal, dict(entry.data))
+                hub["calendar_source"] = source
+                await source.async_start()
 
 
 async def _reminder_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -318,7 +349,15 @@ async def _register_services(hass: HomeAssistant) -> None:
             await runner.async_force_prompt()
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
-    
+
+    async def handle_calendar_ack(call: ServiceCall) -> None:
+        """Ack a calendar-sourced reminder (from its Done button)."""
+        event_key = call.data.get("event_key")
+        hub = hass.data.get(DOMAIN, {}).get("hub", {})
+        source = hub.get("calendar_source")
+        if source and event_key:
+            source.ack(event_key)
+
     # Register services with Home Assistant
     hass.services.async_register(
         DOMAIN,
@@ -355,9 +394,19 @@ async def _register_services(hass: HomeAssistant) -> None:
             vol.Required("entry_id"): cv.string,
         }),
     )
-    
-    _LOGGER.info("Services registered: %s, %s, %s, %s",
-                 SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY, SERVICE_FORCE_PROMPT)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CALENDAR_ACK,
+        handle_calendar_ack,
+        schema=vol.Schema({
+            vol.Required("event_key"): cv.string,
+        }),
+    )
+
+    _LOGGER.info("Services registered: %s, %s, %s, %s, %s",
+                 SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY,
+                 SERVICE_FORCE_PROMPT, SERVICE_CALENDAR_ACK)
 
 
 def _get_runner_by_id(hass: HomeAssistant, entry_id: str) -> ReminderRunner | None:

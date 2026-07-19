@@ -33,6 +33,10 @@ SIGNAL_REMINDERS_UPDATED = f"{DOMAIN}_reminders_updated"
 # external automations react to completion (e.g. reset an HVAC-filter counter).
 EVENT_COMPLETED = f"{DOMAIN}_completed"
 
+# Calendar source
+CONF_REMINDERS_CALENDAR = "reminders_calendar"                   # Calendar entity whose events become reminders
+SERVICE_CALENDAR_ACK = "calendar_ack"                            # Ack a calendar-sourced reminder (data: event_key)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hub-Level Configuration (Global Defaults)
