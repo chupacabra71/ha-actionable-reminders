@@ -694,22 +694,20 @@ class ReminderRunner:
         so the acknowledgement loop is owned entirely by the script. Non-blocking
         so the escalation timer is never held by the ack wait.
         """
-        alexa_device = (
-            self.alexa_devices[0]
-            if self.alexa_devices
-            else "media_player.living_room_echo"
-        )
         severity = "CRITICAL" if self._state[STATE_ESCALATED] else "TIME-SENSITIVE"
         data = {
             "method": "all",
             "who": "all",
-            "alexa_device": alexa_device,
             "alert_volume": volume,
             "severity": severity,
             "title": "🔔 Reminder",
             "message": message,
             "tag": f"ar_{self.entry_id}",
         }
+        # Target a configured Echo if one is set; otherwise let the notification
+        # script choose its own default device.
+        if self.alexa_devices:
+            data["alexa_device"] = self.alexa_devices[0]
         if self.actionable:
             data.update(
                 {

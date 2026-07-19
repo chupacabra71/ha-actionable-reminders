@@ -27,7 +27,7 @@ knows about a normalized *Reminder*.
 | F1 | **Many input types, one system:** recurring (daily/weekly/monthly/interval/yearly), one-time, **app/condition-driven** (e.g. HVAC filter by *runtime hours*, vacuum maintenance), and calendar-driven. |
 | F2 | **Dynamic creation:** any automation/app can create or raise a reminder at runtime via a service — not only pre-defined config. |
 | F3 | **Single place to manage** everything; stop scattering across Google Calendar, phone, Node-RED, and one-off automations. |
-| F4 | **Spouse-friendly entry:** she lives in **Google Calendar**, won't use dashboards. Adding a reminder must be possible *from her calendar*. |
+| F4 | **Low-friction calendar entry:** a household member who lives in **Google Calendar** and won't use dashboards must be able to add a reminder *from their calendar*. |
 | F5 | **Nagging that's hard to ignore:** persistent, **escalating**, surfaced at **natural moments** (arrival, TV on, kitchen motion) rather than a predictable clock alarm. |
 | F6 | **Completion tracking** with acknowledgement. |
 | F7 | **Voice notify + voice ack** (Alexa announce + spoken "yes"), plus mobile. |
@@ -52,7 +52,7 @@ knows about a normalized *Reminder*.
 - **No parent-approval / claim→approve** two-tier authority — the ack *is* completion.
 - **No inventory/pantry auto-consumption** (Grocy) — out of scope until reminders
   couple to stock, if ever.
-- Not trying to replace Google Calendar as *her* surface — we integrate with it.
+- Not trying to replace Google Calendar as *their* surface — we integrate with it.
 - No dependence on room-level presence (it's unreliable here).
 
 ---
@@ -87,7 +87,7 @@ knows about a normalized *Reminder*.
         SINKS (write-back)                │   • quiet/presence    │◀───────────────────┘
    ┌───────────────────────────────┐      │   • completion + hooks│      voice "yes" · mobile tap ·
    │ Google Calendar (derived      │◀─────│                       │      todo complete · button · service
-   │   events she sees)            │      └───────────────────────┘
+   │   events they see)           │      └───────────────────────┘
    │ on_complete actions (reset    │                 │
    │   filter runtime, etc.)       │        HA SURFACE: config-entry + subentries,
    └───────────────────────────────┘        sensor/button/todo/calendar entities, services, events
@@ -118,8 +118,8 @@ schedule:                     # source=schedule
   # per type: days[], day_of_month, nth_weekday, interval{n,unit}, once_datetime
   anchor: fixed | after_completion     # "every" vs "after" — late done pushes next out
 condition:                    # source=condition
-  due_template:   "{{ states('input_number.filter_runtime_upstairs')|float
-                     > states('input_number.filter_runtime_threshold_upstairs')|float }}"
+  due_template:   "{{ states('sensor.hvac_runtime_hours')|float
+                     > states('input_number.hvac_runtime_limit')|float }}"
   resolved_template: null     # optional: auto-clear when true
 calendar:                     # source=calendar
   entity_id: calendar.reminders
@@ -160,7 +160,7 @@ until_done:   true
 optional:     false
 on_complete:                                      # generic side-effects (fixes the filter case)
   - action: input_button.press
-    target: {entity_id: input_button.filter_replaced_upstairs}
+    target: {entity_id: input_button.filter_reset}
 
 # ── Runtime state (engine-owned, persisted) ────────────────────────────────
 state:        idle | due | prompting | escalated | overdue | snoozed | done | skipped
@@ -175,7 +175,7 @@ Everything the operator asked for maps onto this **one** model:
 | One-time | `source: schedule, type: once` (or a calendar event) |
 | **AC filter (runtime hrs)** | `source: condition, due_template: runtime>threshold, on_complete: press reset button` |
 | Vacuum maintenance | `source: condition` |
-| Wife's ad-hoc | `source: calendar` on the shared Google calendar |
+| Ad-hoc (calendar) | `source: calendar` on the shared Google calendar |
 | App-driven at runtime | `create_reminder` service → `source: service` |
 
 ---
@@ -274,19 +274,19 @@ script.unified_notifications(
 
 ---
 
-## 10. Google Calendar integration (the wife's surface)
+## 10. Google Calendar integration (the calendar-user's surface)
 
 Two-way, HA-native (read-write Google Calendar integration).
 
-- **Inbound (she creates):** a dedicated shared **"Reminders"** calendar — *any*
+- **Inbound (they create):** a dedicated shared **"Reminders"** calendar — *any*
   event on it becomes a reminder (no tag discipline); recurring events (RRULE)
-  become recurring reminders. She adds on her phone, gets Google's native
+  become recurring reminders. They add on their phone, get Google's native
   notification *and* the engine's voice/mobile nagging.
 - **Outbound (engine writes):** condition-based and derived reminders (e.g. "AC
   filter due", next scheduled occurrence) are written to the shared calendar so
-  she sees them; on `done`, the event is updated/removed.
-- **Completion from her side:** deleting/completing the event → `mark_done`
-  (calendar source watches for the event disappearing); or she just answers the
+  they see them; on `done`, the event is updated/removed.
+- **Completion from their side:** deleting/completing the event → `mark_done`
+  (calendar source watches for the event disappearing); or they just answer the
   voice/mobile prompt like anyone else.
 
 ---
@@ -295,7 +295,7 @@ Two-way, HA-native (read-write Google Calendar integration).
 
 | Who | Surface |
 |---|---|
-| **Wife** | Google Calendar (add events) — nothing else required |
+| **Calendar user** | Google Calendar (add events) — nothing else required |
 | **Operator** | Config-flow UI (managed reminders) + a dashboard (todo list + status sensors + buttons) + services (dynamic) |
 | **Voice (Assist)** | "what reminders do I have", "mark flea meds done", "remind me to X tomorrow" via the `todo` entity + custom sentences |
 | **Other apps/automations** | `create_reminder` / `force_prompt` / `set_due` services |
@@ -325,7 +325,7 @@ Two-way, HA-native (read-write Google Calendar integration).
   `automation.reminder_engine_notify_ack`, `input_datetime.reminder_last_nag`,
   and (optionally) the Chore Helper HACS integration.
 - **AC filter:** becomes a `condition` reminder (`due_template` = runtime >
-  threshold, `on_complete` = press `input_button.filter_replaced_*`). Keep the
+  threshold, `on_complete` = press `input_button.filter_reset`). Keep the
   accumulator/threshold/reset helpers exactly as-is.
 
 ---
@@ -340,7 +340,7 @@ Two-way, HA-native (read-write Google Calendar integration).
    add `create_reminder`. Fold in vacuum maintenance.
 3. **todo + calendar entities + Assist sentences.** Operator dashboard + voice
    management.
-4. **Google Calendar source/sink.** Wife's inbound events + outbound derived
+4. **Google Calendar source/sink.** Inbound calendar events + outbound derived
    events + calendar-side completion.
 5. **Polish:** synchronized awareness announce, diagnostics, repairs, README/HACS.
 
