@@ -475,6 +475,69 @@ class ReminderRunner:
         
         return False
 
+    def _date_matches_schedule(self, d: date) -> bool:
+        """Whether the given date matches this reminder's recurrence."""
+        if self.schedule_type == "daily":
+            return True
+        if self.schedule_type == "weekly":
+            if not self.schedule_days:
+                return True
+            return WEEKDAYS[d.weekday()] in self.schedule_days
+        if self.schedule_type == "monthly":
+            return self._date_matches_monthly(d)
+        if self.schedule_type == "once":
+            return self.once_date == d.isoformat()
+        return False
+
+    def _date_matches_monthly(self, d: date) -> bool:
+        """Whether a date matches the monthly schedule (day or week-pattern)."""
+        if self.schedule_monthly_type == "day":
+            return d.day == self.schedule_monthly_day
+        if self.schedule_monthly_type == "week_pattern":
+            try:
+                target_weekday = WEEKDAYS.index(self.schedule_monthly_weekday)
+            except (ValueError, TypeError):
+                return False
+            weeks_with_day = [
+                w for w in calendar.monthcalendar(d.year, d.month)
+                if w[target_weekday] != 0
+            ]
+            if not weeks_with_day:
+                return False
+            if self.schedule_monthly_week == "last":
+                target_day = weeks_with_day[-1][target_weekday]
+            else:
+                try:
+                    idx = MONTHLY_WEEKS.index(self.schedule_monthly_week)
+                except (ValueError, TypeError):
+                    return False
+                if idx >= len(weeks_with_day):
+                    return False
+                target_day = weeks_with_day[idx][target_weekday]
+            return d.day == target_day
+        return False
+
+    @property
+    def next_due_date(self) -> date | None:
+        """The next date this reminder is due (for display), or None."""
+        today = dt_util.now().date()
+        done_today = self._state.get(STATE_LAST_DONE) == today.isoformat()
+        if self.schedule_type == "once":
+            if not self.once_date:
+                return None
+            try:
+                return date.fromisoformat(self.once_date)
+            except (TypeError, ValueError):
+                return None
+        # Recurring: scan forward for the next matching date.
+        for offset in range(0, 366):
+            d = today + timedelta(days=offset)
+            if self._date_matches_schedule(d):
+                if offset == 0 and done_today:
+                    continue
+                return d
+        return None
+
     def _in_quiet_hours(self, now: datetime) -> bool:
         """Check if current time is in quiet hours."""
         if not self.quiet_start or not self.quiet_end:

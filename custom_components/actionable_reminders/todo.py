@@ -100,6 +100,7 @@ class RemindersTodoList(TodoListEntity):
                         if done_today
                         else TodoItemStatus.NEEDS_ACTION
                     ),
+                    due=runner.next_due_date,
                 )
             )
         return items
@@ -109,6 +110,19 @@ class RemindersTodoList(TodoListEntity):
         runner = self._runners().get(item.uid)
         if runner is None:
             return
+        # Persist an edited due date (one-time reminders only -> once_date).
+        if item.due is not None and getattr(runner, "schedule_type", None) == "once":
+            new_date = (
+                item.due.date().isoformat()
+                if isinstance(item.due, datetime)
+                else item.due.isoformat()
+            )
+            if new_date != runner.once_date:
+                entry = self.hass.config_entries.async_get_entry(item.uid)
+                if entry is not None:
+                    self.hass.config_entries.async_update_entry(
+                        entry, data={**entry.data, CONF_ONCE_DATE: new_date}
+                    )
         if item.status == TodoItemStatus.COMPLETED:
             await runner.async_mark_done()
         self.async_write_ha_state()
