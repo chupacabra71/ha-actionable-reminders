@@ -27,6 +27,7 @@ from .const import (
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
     CONF_DUE_TEMPLATE,
+    CONF_ON_COMPLETE,
     CONF_LEAD_TIMES,
     CONF_NAG,
     CONF_SCHEDULE_DAYS,
@@ -410,6 +411,8 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             config[CONF_LEAD_TIMES] = import_data[CONF_LEAD_TIMES]
         if CONF_NAG in import_data:
             config[CONF_NAG] = import_data[CONF_NAG]
+        if CONF_ON_COMPLETE in import_data:
+            config[CONF_ON_COMPLETE] = import_data[CONF_ON_COMPLETE]
         if schedule_type == "once":
             config[CONF_ONCE_DATE] = import_data.get(CONF_ONCE_DATE)
         elif schedule_type == "yearly":

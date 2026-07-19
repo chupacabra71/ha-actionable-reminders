@@ -24,6 +24,7 @@ from .const import (
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
     CONF_DUE_TEMPLATE,
+    CONF_ON_COMPLETE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -246,6 +247,7 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
                 "edit_retry",
                 "edit_presence_quiet",
                 "edit_behavior",
+                "edit_on_complete",
             ]
         )
 
@@ -674,5 +676,38 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
                 "optional": "Nag = keep prompting after due until acknowledged (off = a single announce). "
                             "Lead times = days before due to send heads-up announcements, e.g. '30, 7, 1'.",
                 "until_done": "Keeps prompting daily until marked as done."
+            }
+        )
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Edit Completion Action
+    # ────────────────────────────────────────────────────────────────────────────
+
+    async def async_step_edit_on_complete(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Edit the action(s) to run when this reminder is marked done."""
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_ON_COMPLETE: user_input.get(CONF_ON_COMPLETE, []),
+                }
+            )
+            return self.async_create_entry(title="", data={})
+
+        current = self.config_entry.data.get(CONF_ON_COMPLETE, [])
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_ON_COMPLETE,
+                default=current,
+            ): selector.ActionSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="edit_on_complete",
+            data_schema=data_schema,
+            description_placeholders={
+                "info": "Actions run when this reminder is marked done "
+                        "(e.g. press a reset button, set a value)."
             }
         )

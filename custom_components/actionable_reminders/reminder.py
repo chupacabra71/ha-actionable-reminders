@@ -18,9 +18,10 @@ import logging
 from typing import Any
 
 from homeassistant.const import STATE_ON
-from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.core import HomeAssistant, callback, Event, Context
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.script import Script
 from homeassistant.helpers.template import Template
 from homeassistant.util import dt as dt_util
 
@@ -36,6 +37,7 @@ from .const import (
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
     CONF_DUE_TEMPLATE,
+    CONF_ON_COMPLETE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -239,6 +241,7 @@ class ReminderRunner:
         self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
         self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
         self.due_template = config.get(CONF_DUE_TEMPLATE)  # condition source
+        self.on_complete = config.get(CONF_ON_COMPLETE) or []  # HA action sequence
 
     async def async_reconfigure(self, config: dict[str, Any]) -> None:
         """Reconfigure the reminder with new settings."""
@@ -1011,7 +1014,17 @@ class ReminderRunner:
         ack_msg = random.choice(self.ack_messages)
         await self._send_ack(ack_msg)
 
-        # Notify external listeners (e.g. HVAC-filter reset) of completion.
+        # Run the reminder's own completion action(s): a native HA action
+        # sequence stored on the reminder — no bridge automation required.
+        if self.on_complete:
+            try:
+                await Script(
+                    self.hass, self.on_complete, self.name, DOMAIN
+                ).async_run(context=Context())
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("on_complete failed for %s: %s", self.name, e)
+
+        # Also fire a generic completion event for any external listeners.
         self.hass.bus.async_fire(
             EVENT_COMPLETED, {"entry_id": self.entry_id, "name": self.name}
         )
