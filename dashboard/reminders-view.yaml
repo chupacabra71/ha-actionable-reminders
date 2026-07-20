@@ -4,12 +4,13 @@
 # Add as a new view on an existing dashboard (Edit dashboard → + Add view →
 # ⋮ Edit in YAML → paste this).
 #
-# Requires (all already installed): lovelace-mushroom, lovelace-auto-entities,
-# lovelace-template-entity-row.
+# Built-in cards throughout except the status list, where auto-entities +
+# template-entity-row are used because there is no native way to render a
+# templated per-reminder secondary line.
+#   Requires: lovelace-auto-entities, lovelace-template-entity-row
 #
-# Entity IDs are stable across the subentry migration, so this view works both
-# before and after it. `next_due_date` is exposed from v0.8.1+; on older builds
-# the secondary line simply falls back to the last-done date.
+# Entity IDs are stable across the subentry migration, so this works both
+# before and after it. `next_due_date` is exposed from v0.9.0+.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
@@ -25,23 +26,18 @@ sections:
         heading_style: title
         icon: mdi:tune
 
-      - type: custom:mushroom-entity-card
+      - type: tile
         entity: switch.actionable_reminders_master
         name: All reminders
         icon: mdi:bell-ring
-        icon_color: |-
-          {{ 'amber' if is_state('switch.actionable_reminders_master','on') else 'grey' }}
-        secondary_info: state
+        features:
+          - type: toggle
         tap_action:
-          action: toggle
-        hold_action:
           action: more-info
 
-      - type: custom:mushroom-template-card
-        primary: Add a reminder
-        secondary: Opens the reminders hub
+      - type: button
+        name: Add reminder
         icon: mdi:plus-circle-outline
-        icon_color: blue
         tap_action:
           action: navigate
           navigation_path: /config/integrations/integration/actionable_reminders
@@ -76,40 +72,26 @@ sections:
         sort:
           method: attribute
           attribute: next_due_date
-          ignore_case: true
         filter:
           include:
             - domain: switch
               integration: actionable_reminders
               options:
                 type: custom:template-entity-row
-                name: >-
-                  {{ state_attr(config.entity, 'friendly_name') }}
-                icon: >-
-                  {% if state_attr(config.entity, 'escalated') %}mdi:bell-alert
-                  {%- elif is_state(config.entity, 'off') %}mdi:bell-off
-                  {%- else %}mdi:bell{% endif %}
-                secondary: >-
-                  {%- set nd = state_attr(config.entity, 'next_due_date') -%}
-                  {%- set ld = state_attr(config.entity, 'last_done_date') -%}
-                  {%- set esc = state_attr(config.entity, 'escalated') -%}
-                  {%- set skipped = state_attr(config.entity, 'auto_skipped') -%}
-                  {%- if is_state(config.entity, 'off') -%}
-                    Disabled
-                  {%- elif esc -%}
-                    Escalating — {{ state_attr(config.entity, 'retries_today') or 0 }} tries today
-                  {%- elif skipped -%}
-                    Skipped for today
-                  {%- elif nd -%}
-                    Due {{ nd }}{% if ld %} · last done {{ ld }}{% endif %}
-                  {%- elif ld -%}
-                    Last done {{ ld }}
-                  {%- else -%}
-                    Never done
-                  {%- endif -%}
                 toggle: true
                 tap_action:
                   action: more-info
+                icon: >-
+                  {% if state_attr(config.entity,'escalated') %}mdi:bell-alert{% elif
+                  is_state(config.entity,'off') %}mdi:bell-off{% else %}mdi:bell{% endif %}
+                secondary: >-
+                  {% if is_state(config.entity,'off') %}Disabled{% elif
+                  state_attr(config.entity,'escalated') %}Escalating{% elif
+                  state_attr(config.entity,'auto_skipped') %}Skipped today{% elif
+                  state_attr(config.entity,'next_due_date') %}Due {{
+                  state_attr(config.entity,'next_due_date') }}{% elif
+                  state_attr(config.entity,'last_done_date') %}Last done {{
+                  state_attr(config.entity,'last_done_date') }}{% else %}Never done{% endif %}
           exclude:
             # The master switch lives in the Control section above.
             - entity_id: switch.actionable_reminders_master

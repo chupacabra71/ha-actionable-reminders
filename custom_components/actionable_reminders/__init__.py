@@ -115,11 +115,15 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register integration services
     await _register_services(hass)
 
-    # Setup update listener for hub config changes
-    entry.async_on_unload(entry.add_update_listener(_hub_update_listener))
-
     # One-time: fold any legacy standalone reminder entries into subentries.
+    # Runs BEFORE the update listener is registered on purpose: every
+    # async_add_subentry notifies listeners, so migrating N reminders with the
+    # listener already attached schedules N redundant hub reloads. Migrating
+    # first means one clean setup.
     await _migrate_legacy_reminders(hass, entry)
+
+    # Setup update listener for hub config changes (and subentry add/edit/remove)
+    entry.async_on_unload(entry.add_update_listener(_hub_update_listener))
 
     # Calendar source (optional) — watches a calendar and drives reminders.
     hass.data[DOMAIN]["hub"]["calendar_source"] = None
