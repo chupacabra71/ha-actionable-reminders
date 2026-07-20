@@ -17,6 +17,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
@@ -192,6 +193,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return await _unload_reminder(hass, entry)
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete a removed reminder's runtime-state Store file."""
+    if entry.data.get("type", CONF_TYPE_REMINDER) != CONF_TYPE_HUB:
+        await Store(hass, 1, f"{DOMAIN}_state_{entry.entry_id}").async_remove()
+
+
 async def _unload_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the hub entry.
     
@@ -289,6 +296,9 @@ async def _hub_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 source = CalendarSource(hass, new_cal, dict(entry.data))
                 hub["calendar_source"] = source
                 await source.async_start()
+        elif old:
+            # Same calendar — just refresh its hub config (e.g. Alexa device).
+            old.hub_config = dict(entry.data)
 
 
 async def _reminder_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

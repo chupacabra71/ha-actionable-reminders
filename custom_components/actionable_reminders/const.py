@@ -112,7 +112,8 @@ CONF_QUIET_END = "quiet_end"                                     # Quiet hours e
 CONF_OPTIONAL = "optional"                                       # Optional reminder (can auto-skip)
 CONF_UNTIL_DONE = "until_done"                                   # Keep prompting until marked done
 CONF_LEAD_TIMES = "lead_times"                                   # Pre-notification offsets (days before due)
-CONF_NAG = "nag"                                                 # Post-due nag-until-done (False = single announce)
+CONF_ALLOW_CRITICAL = "allow_critical"  # Opt-in: escalate to DND-bypassing CRITICAL
+CONF_NAG = "nag"                                               # Post-due nag-until-done (False = single announce)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -126,6 +127,7 @@ STATE_RETRIES_TODAY = "retries_today"                            # Number of ret
 STATE_ESCALATED = "escalated"                                    # Whether currently escalated
 STATE_ESCALATIONS_TODAY = "escalations_today"                    # Number of escalations today
 STATE_AUTO_SKIPPED = "auto_skipped"                              # Auto-skipped for today
+STATE_RESET_DAY = "reset_day"                                    # Date (YYYY-MM-DD) daily counters last reset
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -141,7 +143,8 @@ DEFAULT_EARLIEST_RETRY_TIME = "10:00"                            # Restart at 10
 DEFAULT_ACTIONABLE = True                                        # Actionable by default
 DEFAULT_MASTER_ENABLED = True                                    # Master switch on by default
 DEFAULT_LEAD_TIMES = []                                          # No pre-notifications by default
-DEFAULT_NAG = True                                               # Nag until done by default
+DEFAULT_ALLOW_CRITICAL = False  # Never bypass DND unless explicitly opted in
+DEFAULT_NAG = True                                             # Nag until done by default
 DEFAULT_QUIET_START = "22:00"                                    # 10 PM
 DEFAULT_QUIET_END = "08:00"                                      # 8 AM
 

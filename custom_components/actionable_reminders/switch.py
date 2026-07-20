@@ -147,14 +147,10 @@ class ReminderSwitch(SwitchEntity):
         if not self._runner.is_enabled:
             _LOGGER.info("Enabling reminder: %s", self._runner.name)
             
-            # Update config entry
+            # Persist to config entry; the entry update-listener applies the
+            # reconfigure, so don't also call async_reconfigure here (double work).
             config = dict(self._runner._entry.data)
             config[CONF_ENABLED] = True
-            
-            # Trigger reconfiguration
-            await self._runner.async_reconfigure(config)
-            
-            # Persist to config entry
             self.hass.config_entries.async_update_entry(
                 self._runner._entry,
                 data=config,
@@ -165,14 +161,10 @@ class ReminderSwitch(SwitchEntity):
         if self._runner.is_enabled:
             _LOGGER.info("Disabling reminder: %s", self._runner.name)
             
-            # Update config entry
+            # Persist to config entry; the entry update-listener applies the
+            # reconfigure, so don't also call async_reconfigure here (double work).
             config = dict(self._runner._entry.data)
             config[CONF_ENABLED] = False
-            
-            # Trigger reconfiguration
-            await self._runner.async_reconfigure(config)
-            
-            # Persist to config entry
             self.hass.config_entries.async_update_entry(
                 self._runner._entry,
                 data=config,

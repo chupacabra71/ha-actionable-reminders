@@ -10,6 +10,7 @@ removed from the calendar are pruned from state (also treated as done).
 from __future__ import annotations
 
 from datetime import date, datetime, time as dt_time, timedelta
+import hashlib
 import logging
 
 from homeassistant.core import HomeAssistant
@@ -58,10 +59,16 @@ class CalendarSource:
         _LOGGER.info("Calendar source watching %s", self.calendar_entity)
 
     async def async_stop(self) -> None:
-        """Stop polling."""
+        """Stop polling and flush state."""
         if self._unsub:
             self._unsub()
             self._unsub = None
+        await self._store.async_save(self._state)
+
+    @staticmethod
+    def _tag(key: str) -> str:
+        """Stable, per-event notification tag (so events don't overwrite each other)."""
+        return "cal_" + hashlib.md5(key.encode()).hexdigest()[:12]
 
     def ack(self, event_key: str) -> None:
         """Mark an event acknowledged (from the calendar_ack service)."""
@@ -95,7 +102,7 @@ class CalendarSource:
             summary = (ev.get("summary") or "Reminder").strip()
             if summary.startswith("✅"):
                 continue  # treated as already handled
-            key = f"{ev.get('uid', summary)}|{start}"
+            key = f"{ev.get('uid') or summary}|{start}"
             current.add(key)
 
             if key in self._state["acked"]:
@@ -104,7 +111,7 @@ class CalendarSource:
             # Day-before heads-up (once).
             if ev_date == today + timedelta(days=1):
                 if waking and self._state["lead_sent"].get(key) != today.isoformat():
-                    await self._announce(f"⏰ Tomorrow: {summary}")
+                    await self._announce(key, f"⏰ Tomorrow: {summary}")
                     self._state["lead_sent"][key] = today.isoformat()
 
             # Day-of (or overdue) actionable nag — once per day.
@@ -113,11 +120,17 @@ class CalendarSource:
                     await self._nag(key, summary)
                     self._state["prompted"][key] = today.isoformat()
 
-        # Prune state for events that no longer exist (deleted = done).
-        for bucket in ("acked", "lead_sent", "prompted"):
-            for key in list(self._state[bucket]):
-                if key not in current and key not in self._state["acked"]:
-                    del self._state[bucket][key]
+        # Prune state for events no longer in the lookahead window. A past event
+        # can't recur (its start is baked into the key), so dropping its state —
+        # including acked — is safe and keeps the store from growing unbounded.
+        # Only prune on a real non-empty fetch: a transient empty result (e.g.
+        # the calendar not yet loaded just after restart) must NOT wipe acked
+        # state, or already-done events would re-nag when they reappear.
+        if events:
+            for bucket in ("acked", "lead_sent", "prompted"):
+                for key in list(self._state[bucket]):
+                    if key not in current:
+                        del self._state[bucket][key]
 
         await self._store.async_save(self._state)
 
@@ -150,13 +163,17 @@ class CalendarSource:
             if len(start) == 10:  # YYYY-MM-DD (all-day)
                 return date.fromisoformat(start)
             parsed = dt_util.parse_datetime(start)
-            return parsed.date() if parsed else None
+            # Normalize to local before taking the date, or a late-evening UTC
+            # timed event can land on the wrong calendar day.
+            return dt_util.as_local(parsed).date() if parsed else None
         except (TypeError, ValueError):
             return None
 
-    async def _announce(self, message: str) -> None:
+    async def _announce(self, key: str, message: str) -> None:
         """Send an informational (non-actionable) heads-up."""
-        await self._notify({"severity": "INFO", "message": message})
+        await self._notify(
+            {"severity": "INFO", "message": message, "tag": self._tag(key)}
+        )
 
     async def _nag(self, key: str, summary: str) -> None:
         """Send the actionable day-of nag; Done acks this event."""
@@ -164,6 +181,7 @@ class CalendarSource:
             {
                 "severity": "TIME-SENSITIVE",
                 "message": f"{summary} — say done when it's handled.",
+                "tag": self._tag(key),
                 "confirm_text": "Done",
                 "confirm_action": [
                     {

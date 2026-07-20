@@ -394,33 +394,54 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Expects reminder_name (+ optional message, schedule_type default "once",
         schedule_time, once_date). Everything else falls back to hub defaults.
         """
+        # Validate the payload up front so a bad programmatic create fails
+        # loudly instead of producing a reminder that silently never fires.
+        name = import_data.get(CONF_REMINDER_NAME)
+        if not name:
+            return self.async_abort(reason="missing_name")
         schedule_type = import_data.get(CONF_SCHEDULE_TYPE, "once")
-        name = import_data[CONF_REMINDER_NAME]
         message = import_data.get("message", name)
 
         config = {
             "type": CONF_TYPE_REMINDER,
             CONF_REMINDER_NAME: name,
             CONF_SCHEDULE_TYPE: schedule_type,
-            CONF_SCHEDULE_TIME: import_data.get(CONF_SCHEDULE_TIME, "09:00"),
+            CONF_SCHEDULE_TIME: import_data.get(CONF_SCHEDULE_TIME) or "09:00",
             CONF_PROMPT_MESSAGES: [message],
             CONF_ACK_MESSAGES: DEFAULT_ACK_MESSAGES,
             CONF_DISMISS_MESSAGES: DEFAULT_DISMISS_MESSAGES,
         }
-        if CONF_LEAD_TIMES in import_data:
-            config[CONF_LEAD_TIMES] = import_data[CONF_LEAD_TIMES]
-        if CONF_NAG in import_data:
-            config[CONF_NAG] = import_data[CONF_NAG]
-        if CONF_ON_COMPLETE in import_data:
-            config[CONF_ON_COMPLETE] = import_data[CONF_ON_COMPLETE]
+        for key in (CONF_LEAD_TIMES, CONF_NAG, CONF_ON_COMPLETE):
+            if key in import_data:
+                config[key] = import_data[key]
+
         if schedule_type == "once":
-            config[CONF_ONCE_DATE] = import_data.get(CONF_ONCE_DATE)
+            if not import_data.get(CONF_ONCE_DATE):
+                return self.async_abort(reason="missing_date")
+            config[CONF_ONCE_DATE] = import_data[CONF_ONCE_DATE]
         elif schedule_type == "yearly":
-            config[CONF_ANNIVERSARY_DATE] = import_data.get(CONF_ANNIVERSARY_DATE)
+            if not import_data.get(CONF_ANNIVERSARY_DATE):
+                return self.async_abort(reason="missing_date")
+            config[CONF_ANNIVERSARY_DATE] = import_data[CONF_ANNIVERSARY_DATE]
         elif schedule_type == "condition":
-            config[CONF_DUE_TEMPLATE] = import_data.get(CONF_DUE_TEMPLATE)
+            if not import_data.get(CONF_DUE_TEMPLATE):
+                return self.async_abort(reason="missing_template")
+            config[CONF_DUE_TEMPLATE] = import_data[CONF_DUE_TEMPLATE]
         elif schedule_type == "weekly":
             config[CONF_SCHEDULE_DAYS] = import_data.get(CONF_SCHEDULE_DAYS, [])
+        elif schedule_type == "monthly":
+            config[CONF_SCHEDULE_MONTHLY_TYPE] = import_data.get(
+                CONF_SCHEDULE_MONTHLY_TYPE, "day"
+            )
+            config[CONF_SCHEDULE_MONTHLY_DAY] = import_data.get(
+                CONF_SCHEDULE_MONTHLY_DAY, 1
+            )
+            config[CONF_SCHEDULE_MONTHLY_WEEK] = import_data.get(
+                CONF_SCHEDULE_MONTHLY_WEEK
+            )
+            config[CONF_SCHEDULE_MONTHLY_WEEKDAY] = import_data.get(
+                CONF_SCHEDULE_MONTHLY_WEEKDAY
+            )
 
         return self.async_create_entry(title=name, data=config)
 

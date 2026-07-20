@@ -11,17 +11,19 @@ This module implements the ReminderRunner class which handles:
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import random
 from datetime import date, datetime, time as dt_time, timedelta
 import logging
 from typing import Any
 
-from homeassistant.const import STATE_ON
-from homeassistant.core import HomeAssistant, callback, Event, Context
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import HomeAssistant, Event, Context
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.script import Script
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.template import Template
 from homeassistant.util import dt as dt_util
 
@@ -62,6 +64,7 @@ from .const import (
     CONF_UNTIL_DONE,
     CONF_LEAD_TIMES,
     CONF_NAG,
+    CONF_ALLOW_CRITICAL,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
@@ -80,6 +83,7 @@ from .const import (
     STATE_ESCALATED,
     STATE_ESCALATIONS_TODAY,
     STATE_AUTO_SKIPPED,
+    STATE_RESET_DAY,
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
@@ -94,6 +98,7 @@ from .const import (
     DEFAULT_UNTIL_DONE,
     DEFAULT_LEAD_TIMES,
     DEFAULT_NAG,
+    DEFAULT_ALLOW_CRITICAL,
     DEFAULT_ENABLED,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
@@ -105,6 +110,29 @@ _LOGGER = logging.getLogger(__name__)
 
 # Tick interval for reminder checking (every minute)
 TICK_INTERVAL = timedelta(minutes=1)
+
+# Storage version for per-reminder runtime state (kept out of the config entry
+# so saving state never triggers a config-update / reconfigure cycle).
+STATE_STORAGE_VERSION = 1
+
+
+def _time_parts(value: Any, fallback: tuple[int, int] = (0, 0)) -> tuple[int, int]:
+    """Parse an 'HH:MM' or 'HH:MM:SS' (or None/'') time string to (hour, minute).
+
+    HA's TimeSelector stores times as 'HH:MM:SS'; older/imported values may be
+    'HH:MM'. Both — and any malformed/empty value — are handled without raising,
+    so a bad time can never crash the scheduling tick.
+    """
+    if not value:
+        return fallback
+    try:
+        parts = str(value).split(":")
+        hour, minute = int(parts[0]), int(parts[1])
+    except (ValueError, IndexError, TypeError):
+        return fallback
+    if 0 <= hour < 24 and 0 <= minute < 60:
+        return hour, minute
+    return fallback
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -135,7 +163,7 @@ class ReminderRunner:
         self.entry_id = entry.entry_id
         self.name = entry.data.get(CONF_REMINDER_NAME, entry.title)
         
-        # State tracking (persisted in entry data)
+        # State tracking (persisted via a dedicated Store, not the config entry)
         self._state = {
             STATE_LAST_PROMPT: None,
             STATE_LAST_DONE: None,
@@ -143,11 +171,18 @@ class ReminderRunner:
             STATE_ESCALATED: False,
             STATE_ESCALATIONS_TODAY: 0,
             STATE_AUTO_SKIPPED: False,
+            STATE_RESET_DAY: None,
         }
-        
+        self._store = Store(
+            hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{entry.entry_id}"
+        )
+
         # Control flags
         self._enabled = True
         self._started = False
+        self._removing = False        # set while the entry is being removed
+        self._tmpl_warned = False     # de-spam due_template render errors
+        self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
         
         # Timer and event listeners
         self._timer_remove = None
@@ -238,6 +273,7 @@ class ReminderRunner:
         self.optional = config.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)
         self.until_done = config.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)
         self.nag = config.get(CONF_NAG, DEFAULT_NAG)
+        self.allow_critical = config.get(CONF_ALLOW_CRITICAL, DEFAULT_ALLOW_CRITICAL)
         self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
         self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
         self.due_template = config.get(CONF_DUE_TEMPLATE)  # condition source
@@ -317,9 +353,10 @@ class ReminderRunner:
             remove()
         self._presence_remove.clear()
         
-        # Save final state
-        await self._save_state()
-        
+        # Save final state (skip when the entry is being removed).
+        if not self._removing:
+            await self._save_state()
+
         self._started = False
         _LOGGER.info("Reminder stopped: %s", self.name)
 
@@ -341,34 +378,35 @@ class ReminderRunner:
     # ────────────────────────────────────────────────────────────────────────────
 
     async def _load_state(self) -> None:
-        """Load persisted state from entry data."""
-        state_data = self._entry.data.get("state", {})
-        
-        if state_data:
-            self._state.update(state_data)
+        """Load persisted state from the Store, migrating from entry data once."""
+        stored = await self._store.async_load()
+        if stored:
+            self._state.update(stored)
             _LOGGER.debug("Loaded state for %s: %s", self.name, self._state)
+            return
+        # Migration: older versions kept state inside the config entry.
+        legacy = self._entry.data.get("state")
+        if legacy:
+            self._state.update(legacy)
+            await self._store.async_save(dict(self._state))
+            _LOGGER.debug("Migrated legacy state for %s", self.name)
         else:
             _LOGGER.debug("No persisted state for %s", self.name)
 
     async def _save_state(self) -> None:
-        """Save current state to entry data."""
-        new_data = {
-            **self._entry.data,
-            "state": self._state,
-        }
-        
-        self.hass.config_entries.async_update_entry(
-            self._entry,
-            data=new_data,
-        )
-        
+        """Persist runtime state to the Store (never the config entry).
+
+        Writing runtime state here — instead of via async_update_entry — keeps
+        every prompt/retry from triggering the entry update-listener (and thus a
+        full reconfigure). A copy is stored so the live dict isn't aliased.
+        """
+        await self._store.async_save(dict(self._state))
         _LOGGER.debug("Saved state for %s: %s", self.name, self._state)
 
     # ────────────────────────────────────────────────────────────────────────────
     # Timer Tick Logic
     # ────────────────────────────────────────────────────────────────────────────
 
-    @callback
     async def _on_timer_tick(self, now: datetime) -> None:
         """Handle timer tick (runs every minute)."""
         if not self._enabled:
@@ -378,29 +416,38 @@ class ReminderRunner:
         if not self.hass.data.get(DOMAIN, {}).get("hub", {}).get("master_enabled", True):
             return
 
-        # async_track_time_interval fires with a UTC datetime, but every gate
-        # below (quiet hours, schedule_time, earliest_retry_time) compares
-        # now.time() against local "HH:MM" strings. Without this the whole
-        # schedule is evaluated in UTC — the cause of pre-dawn nagging.
-        now = dt_util.as_local(now)
+        # Serialize ticks. A presence-change catch-up can invoke this while the
+        # minutely tick is mid-flight; without this both could pass _is_due
+        # before last_prompt is written and double-fire (and race the counter).
+        if self._tick_lock.locked():
+            return
+        async with self._tick_lock:
+            # async_track_time_interval fires with a UTC datetime, but every gate
+            # below (quiet hours, schedule_time, earliest_retry_time) compares
+            # now.time() against local "HH:MM" strings. Without this the whole
+            # schedule is evaluated in UTC — the cause of pre-dawn nagging.
+            now = dt_util.as_local(now)
 
-        # Reset daily state at midnight
-        await self._check_daily_reset(now)
+            # Reset daily state at midnight
+            await self._check_daily_reset(now)
 
-        # Pre-notifications (lead-time heads-ups) — independent of the due nag
-        await self._maybe_send_lead_announcement(now)
+            # Pre-notifications (lead-time heads-ups) — independent of the due nag
+            await self._maybe_send_lead_announcement(now)
 
-        # Check if reminder is due for prompting
-        if self._is_due(now):
-            await self._handle_due_reminder(now)
+            # Check if reminder is due for prompting
+            if self._is_due(now):
+                await self._handle_due_reminder(now)
 
     async def _check_daily_reset(self, now: datetime) -> None:
         """Reset daily counters at midnight."""
         today = now.date().isoformat()
-        last_done = self._state[STATE_LAST_DONE]
-        
-        # If last_done is from a different day, reset counters
-        if last_done and last_done != today:
+
+        # Reset once per calendar day, tracked by its own marker rather than
+        # last_done — otherwise a reminder that is NEVER completed never resets,
+        # so its escalation/auto-skip state bleeds across midnight (a reminder
+        # that auto-skipped once would go permanently silent).
+        if self._state.get(STATE_RESET_DAY) != today:
+            self._state[STATE_RESET_DAY] = today
             self._state[STATE_RETRIES_TODAY] = 0
             self._state[STATE_ESCALATED] = False
             self._state[STATE_ESCALATIONS_TODAY] = 0
@@ -411,13 +458,9 @@ class ReminderRunner:
         """Check if reminder is currently due for prompting."""
         today = now.date().isoformat()
         
-        # Already done or auto-skipped today?
+        # Already done today, or gave up (auto-skipped) for today. Both clear at
+        # the next day boundary via _check_daily_reset.
         if self._state[STATE_LAST_DONE] == today or self._state[STATE_AUTO_SKIPPED]:
-            # Check if auto-skip should be cleared (past earliest retry time)
-            if self._state[STATE_AUTO_SKIPPED]:
-                if self._past_earliest_retry_time(now):
-                    # New day started after earliest retry time, clear auto-skip
-                    return False
             return False
         
         # Check basic schedule
@@ -446,7 +489,7 @@ class ReminderRunner:
             return self._eval_due_template()
 
         # Parse schedule time
-        hour, minute = map(int, self.schedule_time.split(":"))
+        hour, minute = _time_parts(self.schedule_time, (9, 0))
         schedule_time = dt_time(hour, minute)
         
         # Must be past the scheduled time today
@@ -482,35 +525,13 @@ class ReminderRunner:
         return False
 
     def _is_scheduled_monthly(self, now: datetime) -> bool:
-        """Check if current date matches monthly schedule."""
-        if self.schedule_monthly_type == "day":
-            # Specific day of month (1-31)
-            return now.day == self.schedule_monthly_day
-        
-        elif self.schedule_monthly_type == "week_pattern":
-            # Week pattern (e.g., "first Wednesday")
-            target_weekday = WEEKDAYS.index(self.schedule_monthly_weekday)
-            
-            # Get all instances of target weekday in this month
-            year, month = now.year, now.month
-            cal = calendar.monthcalendar(year, month)
-            
-            # Find weeks containing target weekday
-            weeks_with_day = [week for week in cal if week[target_weekday] != 0]
-            
-            if self.schedule_monthly_week == "last":
-                target_day = weeks_with_day[-1][target_weekday]
-            else:
-                # first, second, third, fourth
-                week_idx = MONTHLY_WEEKS.index(self.schedule_monthly_week)
-                if week_idx < len(weeks_with_day):
-                    target_day = weeks_with_day[week_idx][target_weekday]
-                else:
-                    return False  # Pattern doesn't exist this month
-            
-            return now.day == target_day
-        
-        return False
+        """Check if current date matches monthly schedule.
+
+        Delegates to the guarded _date_matches_monthly so live scheduling and
+        the display path share one implementation (and both survive a
+        half-configured week-pattern instead of crashing the tick).
+        """
+        return self._date_matches_monthly(now.date())
 
     def _date_matches_schedule(self, d: date) -> bool:
         """Whether the given date matches this reminder's recurrence."""
@@ -529,6 +550,10 @@ class ReminderRunner:
                 a = date.fromisoformat(self.anniversary_date)
             except (TypeError, ValueError):
                 return False
+            # Feb-29 anniversaries fall back to Feb 28 in non-leap years so they
+            # still fire every year instead of only 1 year in 4.
+            if (a.month, a.day) == (2, 29) and not calendar.isleap(d.year):
+                return (d.month, d.day) == (2, 28)
             return (d.month, d.day) == (a.month, a.day)
         if self.schedule_type == "once":
             return self.once_date == d.isoformat()
@@ -537,7 +562,12 @@ class ReminderRunner:
     def _date_matches_monthly(self, d: date) -> bool:
         """Whether a date matches the monthly schedule (day or week-pattern)."""
         if self.schedule_monthly_type == "day":
-            return d.day == self.schedule_monthly_day
+            if not self.schedule_monthly_day:
+                return False
+            # Clamp to the month's length so "day 31" still fires in short
+            # months (on the last day) instead of being silently skipped.
+            last_day = calendar.monthrange(d.year, d.month)[1]
+            return d.day == min(self.schedule_monthly_day, last_day)
         if self.schedule_monthly_type == "week_pattern":
             try:
                 target_weekday = WEEKDAYS.index(self.schedule_monthly_weekday)
@@ -607,8 +637,12 @@ class ReminderRunner:
                 {"days_since_done": days_since, "last_done": last_done}
             )
         except Exception as e:  # noqa: BLE001
-            _LOGGER.warning("due_template error for %s: %s", self.name, e)
+            # Log once, not every tick, so a broken template doesn't spam the log.
+            if not self._tmpl_warned:
+                _LOGGER.warning("due_template error for %s: %s", self.name, e)
+                self._tmpl_warned = True
             return False
+        self._tmpl_warned = False
         if isinstance(res, bool):
             return res
         return str(res).strip().lower() in ("true", "on", "yes", "1")
@@ -622,13 +656,14 @@ class ReminderRunner:
         if not self.quiet_start or not self.quiet_end:
             return False
         
-        start_hour, start_min = map(int, self.quiet_start.split(":"))
-        end_hour, end_min = map(int, self.quiet_end.split(":"))
-        
-        start_time = dt_time(start_hour, start_min)
-        end_time = dt_time(end_hour, end_min)
+        start_time = dt_time(*_time_parts(self.quiet_start))
+        end_time = dt_time(*_time_parts(self.quiet_end))
         current_time = now.time()
-        
+
+        # Equal bounds would otherwise mean a 24-hour mute — treat as "no quiet".
+        if start_time == end_time:
+            return False
+
         # Handle quiet hours that wrap midnight
         if end_time > start_time:
             return start_time <= current_time < end_time
@@ -639,15 +674,21 @@ class ReminderRunner:
         """Check if presence requirements are satisfied."""
         if not self.presence_sensors:
             return True
-        
-        states = [self.hass.states.get(e) for e in self.presence_sensors]
-        home_states = [s.state == STATE_ON for s in states if s]
-        
-        if not home_states:
-            return False
-        
+
+        # Only consider sensors that are actually reporting. If a presence
+        # integration is down (all unavailable/unknown/missing) we must NOT
+        # silently suppress the reminder — fail open so it still prompts.
+        valid = [
+            s
+            for e in self.presence_sensors
+            if (s := self.hass.states.get(e))
+            and s.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+        ]
+        if not valid:
+            return True
+
         # At least one person home
-        return any(home_states)
+        return any(s.state == STATE_ON for s in valid)
 
     def _retry_ready(self, now: datetime) -> bool:
         """Check if enough time has passed for retry."""
@@ -668,8 +709,7 @@ class ReminderRunner:
 
     def _past_earliest_retry_time(self, now: datetime) -> bool:
         """Check if we're past the earliest retry time for a new day."""
-        hour, minute = map(int, self.earliest_retry_time.split(":"))
-        earliest = dt_time(hour, minute)
+        earliest = dt_time(*_time_parts(self.earliest_retry_time, (10, 0)))
         return now.time() >= earliest
 
     # ────────────────────────────────────────────────────────────────────────────
@@ -688,6 +728,13 @@ class ReminderRunner:
                 self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
             )
             async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
+            # A one-time announce is finished after it fires — remove it so it
+            # doesn't re-announce every following day.
+            if self.schedule_type == "once":
+                self._removing = True
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_remove(self.entry_id)
+                )
             return
 
         retries = self._state[STATE_RETRIES_TODAY]
@@ -715,7 +762,7 @@ class ReminderRunner:
         if self._state.get(STATE_LAST_LEAD_DATE) == today.isoformat():
             return
         try:
-            hour, minute = map(int, self.schedule_time.split(":"))
+            hour, minute = _time_parts(self.schedule_time, (9, 0))
         except (ValueError, AttributeError):
             hour, minute = 9, 0
         if now.time() < dt_time(hour, minute):
@@ -885,7 +932,13 @@ class ReminderRunner:
         so the acknowledgement loop is owned entirely by the script. Non-blocking
         so the escalation timer is never held by the ack wait.
         """
-        severity = "CRITICAL" if self._state[STATE_ESCALATED] else "TIME-SENSITIVE"
+        # Escalation stays at TIME-SENSITIVE unless this reminder explicitly
+        # opts in to DND-bypassing CRITICAL — nothing overrides Do Not Disturb
+        # by default.
+        if self._state[STATE_ESCALATED] and self.allow_critical:
+            severity = "CRITICAL"
+        else:
+            severity = "TIME-SENSITIVE"
         data = {
             "method": "all",
             "who": "all",
@@ -1008,7 +1061,6 @@ class ReminderRunner:
     # Presence Change Handler
     # ────────────────────────────────────────────────────────────────────────────
 
-    @callback
     async def _on_presence_change(self, event: Event) -> None:
         """Handle presence entity state change."""
         if self.catchup_on_arrival:
@@ -1043,9 +1095,16 @@ class ReminderRunner:
         # sequence stored on the reminder — no bridge automation required.
         if self.on_complete:
             try:
-                await Script(
-                    self.hass, self.on_complete, self.name, DOMAIN
-                ).async_run(context=Context())
+                # Bound the action so a hanging on_complete (delay, wait_template,
+                # slow blocking call) can't stall completion / the ack loop.
+                await asyncio.wait_for(
+                    Script(
+                        self.hass, self.on_complete, self.name, DOMAIN
+                    ).async_run(context=Context()),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                _LOGGER.error("on_complete timed out for %s", self.name)
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error("on_complete failed for %s: %s", self.name, e)
 
@@ -1057,6 +1116,7 @@ class ReminderRunner:
         # Refresh the aggregate to-do list; one-time reminders self-remove.
         async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
         if self.schedule_type == "once":
+            self._removing = True
             self.hass.async_create_task(
                 self.hass.config_entries.async_remove(self.entry_id)
             )

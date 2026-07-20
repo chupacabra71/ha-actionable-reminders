@@ -48,6 +48,7 @@ from .const import (
     CONF_OPTIONAL,
     CONF_UNTIL_DONE,
     CONF_NAG,
+    CONF_ALLOW_CRITICAL,
     CONF_LEAD_TIMES,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
@@ -73,6 +74,7 @@ from .const import (
     DEFAULT_QUIET_END,
     DEFAULT_OPTIONAL,
     DEFAULT_NAG,
+    DEFAULT_ALLOW_CRITICAL,
     DEFAULT_UNTIL_DONE,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
@@ -319,7 +321,7 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
             data_schema = vol.Schema({
                 vol.Required(
                     CONF_ANNIVERSARY_DATE,
-                    default=current_data.get(CONF_ANNIVERSARY_DATE)
+                    description={"suggested_value": current_data.get(CONF_ANNIVERSARY_DATE)},
                 ): selector.DateSelector(),
                 vol.Required(
                     CONF_SCHEDULE_TIME,
@@ -331,7 +333,7 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
             data_schema = vol.Schema({
                 vol.Required(
                     CONF_ONCE_DATE,
-                    default=current_data.get(CONF_ONCE_DATE)
+                    description={"suggested_value": current_data.get(CONF_ONCE_DATE)},
                 ): selector.DateSelector(),
                 vol.Required(
                     CONF_SCHEDULE_TIME,
@@ -490,7 +492,7 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_MOBILE_SERVICE,
-                default=current_data.get(CONF_MOBILE_SERVICE)
+                description={"suggested_value": current_data.get(CONF_MOBILE_SERVICE)},
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=notify_services,
@@ -553,22 +555,22 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_RETRY_INTERVAL,
-                default=current_data.get(CONF_RETRY_INTERVAL)
+                description={"suggested_value": current_data.get(CONF_RETRY_INTERVAL)},
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
-            
+
             vol.Optional(
                 CONF_MAX_RETRIES,
-                default=current_data.get(CONF_MAX_RETRIES)
+                description={"suggested_value": current_data.get(CONF_MAX_RETRIES)},
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
-            
+
             vol.Optional(
                 CONF_ESCALATION_INTERVAL,
-                default=current_data.get(CONF_ESCALATION_INTERVAL)
+                description={"suggested_value": current_data.get(CONF_ESCALATION_INTERVAL)},
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
-            
+
             vol.Optional(
                 CONF_MAX_ESCALATIONS,
-                default=current_data.get(CONF_MAX_ESCALATIONS)
+                description={"suggested_value": current_data.get(CONF_MAX_ESCALATIONS)},
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
         })
 
@@ -615,12 +617,12 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
             
             vol.Optional(
                 CONF_QUIET_START,
-                default=current_data.get(CONF_QUIET_START)
+                description={"suggested_value": current_data.get(CONF_QUIET_START)},
             ): selector.TimeSelector(),
-            
+
             vol.Optional(
                 CONF_QUIET_END,
-                default=current_data.get(CONF_QUIET_END)
+                description={"suggested_value": current_data.get(CONF_QUIET_END)},
             ): selector.TimeSelector(),
         })
 
@@ -660,6 +662,11 @@ class ActionableRemindersReminderOptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_NAG,
                 default=current_data.get(CONF_NAG, DEFAULT_NAG)
+            ): bool,
+
+            vol.Required(
+                CONF_ALLOW_CRITICAL,
+                default=current_data.get(CONF_ALLOW_CRITICAL, DEFAULT_ALLOW_CRITICAL)
             ): bool,
 
             vol.Optional(
