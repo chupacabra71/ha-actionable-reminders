@@ -14,7 +14,9 @@ import hashlib
 import logging
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceNotFound
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -46,6 +48,7 @@ class CalendarSource:
             "prompted": {},
         }
         self._unsub = None
+        self._unsub_start = None
 
     async def async_start(self) -> None:
         """Load persisted state and begin polling."""
@@ -54,15 +57,26 @@ class CalendarSource:
             for k in ("acked", "lead_sent", "prompted"):
                 self._state[k] = dict(stored.get(k, {}))
         self._unsub = async_track_time_interval(self.hass, self._tick, POLL_INTERVAL)
-        # First pass shortly after start.
-        self.hass.async_create_task(self._tick(dt_util.now()))
+        # First pass once HA has finished starting. Polling any earlier races
+        # the calendar integration's registration of calendar.get_events, which
+        # fails the fetch and logs a warning. Fires immediately on a reload of
+        # an already-running HA.
+        self._unsub_start = async_at_started(self.hass, self._first_tick)
         _LOGGER.info("Calendar source watching %s", self.calendar_entity)
+
+    async def _first_tick(self, _hass: HomeAssistant) -> None:
+        """Run the initial poll once HA is up."""
+        self._unsub_start = None
+        await self._tick(dt_util.now())
 
     async def async_stop(self) -> None:
         """Stop polling and flush state."""
         if self._unsub:
             self._unsub()
             self._unsub = None
+        if self._unsub_start:
+            self._unsub_start()
+            self._unsub_start = None
         await self._store.async_save(self._state)
 
     @staticmethod
@@ -148,6 +162,11 @@ class CalendarSource:
                 blocking=True,
                 return_response=True,
             )
+        except ServiceNotFound:
+            # The calendar integration hasn't registered its services yet; the
+            # next poll will succeed. Not worth a warning.
+            _LOGGER.debug("calendar.get_events not registered yet; skipping poll")
+            return None
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("get_events failed for %s: %s", self.calendar_entity, e)
             return None
