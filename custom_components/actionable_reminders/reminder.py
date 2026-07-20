@@ -325,11 +325,10 @@ class ReminderRunner:
         """
         self._removing = True
         self.hass.async_create_task(self._store.async_remove())
+        # Removing the subentry fires the hub update-listener, which reloads
+        # and rebuilds the remaining runners.
         self.hass.config_entries.async_remove_subentry(
             self._hub_entry, self._subentry.subentry_id
-        )
-        self.hass.async_create_task(
-            self.hass.config_entries.async_reload(self._hub_entry.entry_id)
         )
 
     # ────────────────────────────────────────────────────────────────────────────

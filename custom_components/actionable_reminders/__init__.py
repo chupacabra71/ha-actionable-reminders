@@ -268,38 +268,13 @@ async def _unload_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _hub_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle hub configuration updates from config flow.
-    
-    Args:
-        hass: Home Assistant instance
-        entry: Updated hub config entry
-    """
-    _LOGGER.info("Hub configuration updated")
-    
-    # Update stored hub config
-    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
-        hass.data[DOMAIN]["hub"]["config"] = dict(entry.data)
-        
-        # Notify all reminder runners of hub config change
-        for runner in hass.data[DOMAIN]["hub"]["reminders"].values():
-            await runner.async_update_hub_config(dict(entry.data))
+    """Reload the hub on any change.
 
-        # Recreate the calendar source if the watched calendar changed.
-        hub = hass.data[DOMAIN]["hub"]
-        old = hub.get("calendar_source")
-        old_cal = old.calendar_entity if old else None
-        new_cal = entry.data.get(CONF_REMINDERS_CALENDAR)
-        if new_cal != old_cal:
-            if old:
-                await old.async_stop()
-            hub["calendar_source"] = None
-            if new_cal:
-                source = CalendarSource(hass, new_cal, dict(entry.data))
-                hub["calendar_source"] = source
-                await source.async_start()
-        elif old:
-            # Same calendar — just refresh its hub config (e.g. Alexa device).
-            old.hub_config = dict(entry.data)
+    Fires when hub options are edited OR a reminder subentry is added, edited,
+    or removed. A reload rebuilds runners, switch entities, and the calendar
+    source from the current configuration — the single reconcile path.
+    """
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

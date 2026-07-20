@@ -163,10 +163,11 @@ class ReminderSwitch(SwitchEntity):
         runner = self._runner
         hub = runner._hub_entry
         subentry = runner._subentry
+        # Updating the subentry fires the hub update-listener, which reloads
+        # and rebuilds this reminder's runner with the new enabled state.
         self.hass.config_entries.async_update_subentry(
             hub, subentry, data={**subentry.data, CONF_ENABLED: enabled}
         )
-        await self.hass.config_entries.async_reload(hub.entry_id)
 
     @property
     def icon(self) -> str:
