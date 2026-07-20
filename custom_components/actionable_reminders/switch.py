@@ -131,6 +131,9 @@ class ReminderSwitch(SwitchEntity):
             "schedule_monthly_day": self._runner.schedule_monthly_day if self._runner.schedule_type == "monthly" else None,
             "schedule_monthly_week": self._runner.schedule_monthly_week if self._runner.schedule_type == "monthly" else None,
             "schedule_monthly_weekday": self._runner.schedule_monthly_weekday if self._runner.schedule_type == "monthly" else None,
+            "next_due_date": (
+                d.isoformat() if (d := self._runner.next_due_date) else None
+            ),
             "last_done_date": state.get(STATE_LAST_DONE),
             "last_prompt_ts": state.get(STATE_LAST_PROMPT),
             "retries_today": state.get(STATE_RETRIES_TODAY, 0),
