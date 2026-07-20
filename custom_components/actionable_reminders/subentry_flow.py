@@ -438,7 +438,10 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         config = self._build_config()
         title = config[CONF_REMINDER_NAME]
         if self._editing:
-            return self.async_update_reload_and_abort(
+            # NOT async_update_reload_and_abort: that raises ValueError when the
+            # entry has update listeners, and the hub registers one. Updating the
+            # subentry fires that listener, which schedules the reload for us.
+            return self.async_update_and_abort(
                 self._get_entry(),
                 self._get_reconfigure_subentry(),
                 title=title,

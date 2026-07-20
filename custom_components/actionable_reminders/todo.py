@@ -176,7 +176,9 @@ class RemindersTodoList(TodoListEntity):
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         """Delete items -> remove those reminder subentries (listener reloads)."""
         for uid in uids:
-            self.hass.config_entries.async_remove_subentry(self._entry, uid)
+            # async_remove_subentry raises UnknownSubEntry on a stale id.
+            if uid in self._entry.subentries:
+                self.hass.config_entries.async_remove_subentry(self._entry, uid)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:

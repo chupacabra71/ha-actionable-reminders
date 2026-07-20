@@ -271,10 +271,15 @@ async def _hub_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the hub on any change.
 
     Fires when hub options are edited OR a reminder subentry is added, edited,
-    or removed. A reload rebuilds runners, switch entities, and the calendar
-    source from the current configuration — the single reconcile path.
+    or removed (all subentry mutators notify update listeners). A reload
+    rebuilds runners, switch entities, and the calendar source from the current
+    configuration — the single reconcile path covering add, edit, and remove.
+
+    Uses async_schedule_reload rather than awaiting async_reload: the listener
+    already runs as its own task, and scheduling avoids reloading the entry
+    from inside its own update notification.
     """
-    await hass.config_entries.async_reload(entry.entry_id)
+    hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
