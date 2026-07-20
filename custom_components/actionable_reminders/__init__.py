@@ -12,7 +12,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from types import MappingProxyType
+
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -25,6 +27,7 @@ from .const import (
     DOMAIN,
     CONF_TYPE_HUB,
     CONF_TYPE_REMINDER,
+    SUBENTRY_TYPE_REMINDER,
     CONF_REMINDERS_CALENDAR,
     CONF_MASTER_ENABLED,
     DEFAULT_MASTER_ENABLED,
@@ -75,13 +78,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         True if setup successful
     """
     entry_type = entry.data.get("type", CONF_TYPE_REMINDER)
-    
+
     if entry_type == CONF_TYPE_HUB:
-        # This is the hub entry - store global defaults and register services
+        # The hub owns everything: global defaults, services, and every
+        # reminder (now a subentry of the hub rather than its own entry).
         return await _setup_hub(hass, entry)
-    else:
-        # This is an individual reminder
-        return await _setup_reminder(hass, entry)
+
+    # Legacy standalone reminder entry (pre-subentries). Do nothing here — the
+    # hub setup migrates these into subentries and removes them.
+    _LOGGER.debug("Legacy reminder entry %s awaiting migration", entry.title)
+    return True
 
 
 async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -108,9 +114,12 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Register integration services
     await _register_services(hass)
-    
+
     # Setup update listener for hub config changes
     entry.async_on_unload(entry.add_update_listener(_hub_update_listener))
+
+    # One-time: fold any legacy standalone reminder entries into subentries.
+    await _migrate_legacy_reminders(hass, entry)
 
     # Calendar source (optional) — watches a calendar and drives reminders.
     hass.data[DOMAIN]["hub"]["calendar_source"] = None
@@ -120,53 +129,61 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN]["hub"]["calendar_source"] = source
         await source.async_start()
 
-    # Set up hub-level platforms (the aggregate Reminders to-do list)
+    # Create one runner per reminder subentry.
+    hub_config = hass.data[DOMAIN]["hub"]["config"]
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_REMINDER:
+            continue
+        runner = ReminderRunner(hass, entry, subentry, hub_config)
+        hass.data[DOMAIN]["hub"]["reminders"][subentry.subentry_id] = runner
+        await runner.async_start()
+
+    # Set up hub platforms: the aggregate to-do list + switches (master +
+    # one per reminder subentry).
     await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
 
-    _LOGGER.info("Actionable Reminders hub setup complete")
+    _LOGGER.info(
+        "Actionable Reminders hub setup complete (%d reminders)",
+        len(hass.data[DOMAIN]["hub"]["reminders"]),
+    )
     return True
 
 
-async def _setup_reminder(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up an individual reminder entry.
-    
-    Args:
-        hass: Home Assistant instance
-        entry: Reminder config entry
-        
-    Returns:
-        True if successful, False if hub not found
+async def _migrate_legacy_reminders(hass: HomeAssistant, hub_entry: ConfigEntry) -> None:
+    """Convert legacy standalone reminder config entries into hub subentries.
+
+    Each reminder's legacy entry_id is carried as the subentry's unique_id, so
+    the entity registry (keyed on unique_id, not the owning entry) keeps every
+    switch.* entity_id and its history — dashboards/automations are unaffected.
+    Runtime state persists too: the per-reminder Store is keyed by that same id.
     """
-    _LOGGER.info("Setting up reminder: %s", entry.title)
-    
-    # Ensure hub exists
-    if DOMAIN not in hass.data or "hub" not in hass.data[DOMAIN]:
-        _LOGGER.error("Hub not found - please set up the integration first")
-        return False
-    
-    # Get hub config for global defaults
-    hub_config = hass.data[DOMAIN]["hub"]["config"]
-    
-    # Create reminder runner
-    runner = ReminderRunner(hass, entry, hub_config)
-    
-    # Store runner in hub registry
-    hass.data[DOMAIN]["hub"]["reminders"][entry.entry_id] = runner
-    
-    # Start the reminder (begins monitoring)
-    await runner.async_start()
-    
-    # Setup switch platform (creates switch entity)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    legacy = [
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != hub_entry.entry_id
+        and e.data.get("type", CONF_TYPE_REMINDER) != CONF_TYPE_HUB
+    ]
+    if not legacy:
+        return
 
-    # Refresh the aggregate to-do list (a reminder was added)
-    async_dispatcher_send(hass, SIGNAL_REMINDERS_UPDATED)
+    _LOGGER.warning("Migrating %d legacy reminder(s) to subentries", len(legacy))
+    for e in legacy:
+        data = {k: v for k, v in e.data.items() if k != "type"}
+        hass.config_entries.async_add_subentry(
+            hub_entry,
+            ConfigSubentry(
+                data=MappingProxyType(data),
+                subentry_type=SUBENTRY_TYPE_REMINDER,
+                title=e.title,
+                unique_id=e.entry_id,
+            ),
+        )
+        _LOGGER.info("Migrated reminder '%s' -> subentry", e.title)
 
-    # Setup update listener for reminder config changes
-    entry.async_on_unload(entry.add_update_listener(_reminder_update_listener))
-    
-    _LOGGER.info("Reminder setup complete: %s", entry.title)
-    return True
+    # Remove the legacy entries now that their subentries exist. async_remove_entry
+    # is guarded to NOT delete the state Store these subentries inherited.
+    for e in legacy:
+        await hass.config_entries.async_remove(e.entry_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -184,19 +201,32 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         True if successful
     """
     entry_type = entry.data.get("type", CONF_TYPE_REMINDER)
-    
+
     if entry_type == CONF_TYPE_HUB:
-        # Unloading hub - stop all reminders first
         return await _unload_hub(hass, entry)
-    else:
-        # Unloading individual reminder
-        return await _unload_reminder(hass, entry)
+
+    # Legacy standalone reminder entry — the hub owns all reminders now, so
+    # nothing was set up for it and there's nothing to unload.
+    return True
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Delete a removed reminder's runtime-state Store file."""
-    if entry.data.get("type", CONF_TYPE_REMINDER) != CONF_TYPE_HUB:
-        await Store(hass, 1, f"{DOMAIN}_state_{entry.entry_id}").async_remove()
+    """Delete a removed reminder's runtime-state Store file.
+
+    Skip deletion when a migrated subentry now owns that state (the legacy
+    entry_id is carried as the subentry's unique_id) — otherwise migration
+    would wipe the state it's meant to inherit.
+    """
+    if entry.data.get("type", CONF_TYPE_REMINDER) == CONF_TYPE_HUB:
+        return
+    hub = next(
+        (e for e in hass.config_entries.async_entries(DOMAIN)
+         if e.data.get("type") == CONF_TYPE_HUB),
+        None,
+    )
+    if hub and any(s.unique_id == entry.entry_id for s in hub.subentries.values()):
+        return
+    await Store(hass, 1, f"{DOMAIN}_state_{entry.entry_id}").async_remove()
 
 
 async def _unload_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -233,88 +263,23 @@ async def _unload_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _unload_reminder(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload an individual reminder entry.
-    
-    Args:
-        hass: Home Assistant instance
-        entry: Reminder config entry
-        
-    Returns:
-        True if successful
-    """
-    _LOGGER.info("Unloading reminder: %s", entry.title)
-    
-    # Stop and remove the reminder runner
-    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
-        runner = hass.data[DOMAIN]["hub"]["reminders"].pop(entry.entry_id, None)
-        if runner:
-            await runner.async_stop()
-    
-    # Unload switch platform
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    # Refresh the aggregate to-do list (a reminder was removed)
-    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
-        async_dispatcher_send(hass, SIGNAL_REMINDERS_UPDATED)
-
-    _LOGGER.info("Reminder unloaded: %s", entry.title)
-    return unload_ok
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Update Listeners
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _hub_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle hub configuration updates from config flow.
-    
-    Args:
-        hass: Home Assistant instance
-        entry: Updated hub config entry
+    """Reload the hub on any change.
+
+    Fires when hub options are edited OR a reminder subentry is added, edited,
+    or removed (all subentry mutators notify update listeners). A reload
+    rebuilds runners, switch entities, and the calendar source from the current
+    configuration — the single reconcile path covering add, edit, and remove.
+
+    Uses async_schedule_reload rather than awaiting async_reload: the listener
+    already runs as its own task, and scheduling avoids reloading the entry
+    from inside its own update notification.
     """
-    _LOGGER.info("Hub configuration updated")
-    
-    # Update stored hub config
-    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
-        hass.data[DOMAIN]["hub"]["config"] = dict(entry.data)
-        
-        # Notify all reminder runners of hub config change
-        for runner in hass.data[DOMAIN]["hub"]["reminders"].values():
-            await runner.async_update_hub_config(dict(entry.data))
-
-        # Recreate the calendar source if the watched calendar changed.
-        hub = hass.data[DOMAIN]["hub"]
-        old = hub.get("calendar_source")
-        old_cal = old.calendar_entity if old else None
-        new_cal = entry.data.get(CONF_REMINDERS_CALENDAR)
-        if new_cal != old_cal:
-            if old:
-                await old.async_stop()
-            hub["calendar_source"] = None
-            if new_cal:
-                source = CalendarSource(hass, new_cal, dict(entry.data))
-                hub["calendar_source"] = source
-                await source.async_start()
-        elif old:
-            # Same calendar — just refresh its hub config (e.g. Alexa device).
-            old.hub_config = dict(entry.data)
-
-
-async def _reminder_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle reminder configuration updates from config flow.
-    
-    Args:
-        hass: Home Assistant instance
-        entry: Updated reminder config entry
-    """
-    _LOGGER.info("Reminder configuration updated: %s", entry.title)
-    
-    # Get the runner and update its config
-    if DOMAIN in hass.data and "hub" in hass.data[DOMAIN]:
-        runner = hass.data[DOMAIN]["hub"]["reminders"].get(entry.entry_id)
-        if runner:
-            await runner.async_reconfigure(dict(entry.data))
+    hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

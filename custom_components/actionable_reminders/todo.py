@@ -17,7 +17,9 @@ from homeassistant.components.todo import (
     TodoListEntity,
     TodoListEntityFeature,
 )
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+from types import MappingProxyType
+
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -25,9 +27,11 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ONCE_DATE,
+    CONF_PROMPT_MESSAGES,
     CONF_REMINDER_NAME,
     CONF_SCHEDULE_TIME,
     CONF_SCHEDULE_TYPE,
+    SUBENTRY_TYPE_REMINDER,
     DOMAIN,
     SIGNAL_REMINDERS_UPDATED,
     STATE_LAST_DONE,
@@ -124,11 +128,11 @@ class RemindersTodoList(TodoListEntity):
                 else item.due.isoformat()
             )
             if new_date != runner.once_date:
-                entry = self.hass.config_entries.async_get_entry(item.uid)
-                if entry is not None:
-                    self.hass.config_entries.async_update_entry(
-                        entry, data={**entry.data, CONF_ONCE_DATE: new_date}
-                    )
+                self.hass.config_entries.async_update_subentry(
+                    self._entry,
+                    runner._subentry,
+                    data={**runner._subentry.data, CONF_ONCE_DATE: new_date},
+                )
         if item.status == TodoItemStatus.COMPLETED:
             await runner.async_mark_done()
         self.async_write_ha_state()
@@ -149,23 +153,32 @@ class RemindersTodoList(TodoListEntity):
         elif isinstance(due, date):
             once_date = due.isoformat()
 
-        await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": SOURCE_IMPORT},
-            data={
-                CONF_REMINDER_NAME: item.summary,
-                "message": item.summary,
-                CONF_SCHEDULE_TYPE: "once",
-                CONF_SCHEDULE_TIME: schedule_time,
-                CONF_ONCE_DATE: once_date,
-            },
+        data = {
+            CONF_REMINDER_NAME: item.summary,
+            CONF_PROMPT_MESSAGES: [item.summary],
+            CONF_SCHEDULE_TYPE: "once",
+            CONF_SCHEDULE_TIME: schedule_time,
+            CONF_ONCE_DATE: once_date,
+        }
+        # Adding the subentry fires the hub update-listener → reload → the new
+        # runner and switch are created.
+        self.hass.config_entries.async_add_subentry(
+            self._entry,
+            ConfigSubentry(
+                data=MappingProxyType(data),
+                subentry_type=SUBENTRY_TYPE_REMINDER,
+                title=item.summary,
+                unique_id=None,
+            ),
         )
         self.async_write_ha_state()
 
     async def async_delete_todo_items(self, uids: list[str]) -> None:
-        """Delete items -> remove those reminders entirely."""
+        """Delete items -> remove those reminder subentries (listener reloads)."""
         for uid in uids:
-            await self.hass.config_entries.async_remove(uid)
+            # async_remove_subentry raises UnknownSubEntry on a stale id.
+            if uid in self._entry.subentries:
+                self.hass.config_entries.async_remove_subentry(self._entry, uid)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:

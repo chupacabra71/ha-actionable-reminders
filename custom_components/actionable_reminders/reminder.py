@@ -145,24 +145,33 @@ class ReminderRunner:
     def __init__(
         self,
         hass: HomeAssistant,
-        entry,
+        hub_entry,
+        subentry,
         hub_config: dict[str, Any],
     ) -> None:
         """Initialize the reminder runner.
-        
+
         Args:
             hass: Home Assistant instance
-            entry: Config entry for this reminder
+            hub_entry: The hub ConfigEntry that owns this reminder subentry
+            subentry: The ConfigSubentry describing this reminder
             hub_config: Global configuration from hub (for defaults)
         """
         self.hass = hass
-        self._entry = entry
+        self._hub_entry = hub_entry
+        self._subentry = subentry
         self._hub_config = hub_config
-        
-        # Core identification
-        self.entry_id = entry.entry_id
-        self.name = entry.data.get(CONF_REMINDER_NAME, entry.title)
-        
+
+        # Core identification.
+        #   entry_id = the subentry id — the key used across the reminder
+        #              registry, services, signals, and notification actions.
+        #   uid      = the stable identity for the entity unique_id and the
+        #              state store. It carries the legacy config-entry id for
+        #              migrated reminders, so entity_ids never change.
+        self.entry_id = subentry.subentry_id
+        self.uid = subentry.unique_id or subentry.subentry_id
+        self.name = subentry.data.get(CONF_REMINDER_NAME) or subentry.title
+
         # State tracking (persisted via a dedicated Store, not the config entry)
         self._state = {
             STATE_LAST_PROMPT: None,
@@ -174,23 +183,23 @@ class ReminderRunner:
             STATE_RESET_DAY: None,
         }
         self._store = Store(
-            hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{entry.entry_id}"
+            hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{self.uid}"
         )
 
         # Control flags
         self._enabled = True
         self._started = False
-        self._removing = False        # set while the entry is being removed
+        self._removing = False        # set while the reminder is being removed
         self._tmpl_warned = False     # de-spam due_template render errors
         self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
-        
+
         # Timer and event listeners
         self._timer_remove = None
         self._presence_remove = []
-        
-        # Apply configuration from entry
-        self._apply_config(entry.data)
-        
+
+        # Apply configuration from the subentry
+        self._apply_config(subentry.data)
+
         _LOGGER.info("Initialized reminder: %s", self.name)
 
     # ────────────────────────────────────────────────────────────────────────────
@@ -308,6 +317,20 @@ class ReminderRunner:
         self._hub_config = hub_config
         _LOGGER.debug("Hub config updated for reminder: %s", self.name)
 
+    def _self_remove(self) -> None:
+        """Remove this reminder's subentry, drop its state, and reload the hub.
+
+        Reloading the hub entry rebuilds the runner set from the remaining
+        subentries — the reconcile path for any subentry add/edit/remove.
+        """
+        self._removing = True
+        self.hass.async_create_task(self._store.async_remove())
+        # Removing the subentry fires the hub update-listener, which reloads
+        # and rebuilds the remaining runners.
+        self.hass.config_entries.async_remove_subentry(
+            self._hub_entry, self._subentry.subentry_id
+        )
+
     # ────────────────────────────────────────────────────────────────────────────
     # Lifecycle Management
     # ────────────────────────────────────────────────────────────────────────────
@@ -385,7 +408,7 @@ class ReminderRunner:
             _LOGGER.debug("Loaded state for %s: %s", self.name, self._state)
             return
         # Migration: older versions kept state inside the config entry.
-        legacy = self._entry.data.get("state")
+        legacy = self._subentry.data.get("state")
         if legacy:
             self._state.update(legacy)
             await self._store.async_save(dict(self._state))
@@ -731,10 +754,7 @@ class ReminderRunner:
             # A one-time announce is finished after it fires — remove it so it
             # doesn't re-announce every following day.
             if self.schedule_type == "once":
-                self._removing = True
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_remove(self.entry_id)
-                )
+                self._self_remove()
             return
 
         retries = self._state[STATE_RETRIES_TODAY]
@@ -1116,10 +1136,7 @@ class ReminderRunner:
         # Refresh the aggregate to-do list; one-time reminders self-remove.
         async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
         if self.schedule_type == "once":
-            self._removing = True
-            self.hass.async_create_task(
-                self.hass.config_entries.async_remove(self.entry_id)
-            )
+            self._self_remove()
         
         # Notify switch entity
         async_dispatcher_send(
