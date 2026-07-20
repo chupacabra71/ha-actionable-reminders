@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     DOMAIN,
     CONF_TYPE_HUB,
+    SUBENTRY_TYPE_REMINDER,
     CONF_MASTER_ENABLED,
     DEFAULT_MASTER_ENABLED,
     SIGNAL_REMINDER_UPDATE,
@@ -47,27 +48,27 @@ async def async_setup_entry(
         entry: Config entry for the reminder
         async_add_entities: Callback to add entities
     """
-    # Get the reminder runner from hub registry
+    # Switch platform is set up on the hub entry only. It creates the global
+    # master switch plus one switch per reminder subentry.
     if DOMAIN not in hass.data or "hub" not in hass.data[DOMAIN]:
         _LOGGER.error("Hub not found when setting up switch")
         return
 
-    # The hub entry gets the global master on/off switch.
-    if entry.data.get("type") == CONF_TYPE_HUB:
-        async_add_entities([MasterSwitch(hass, entry)])
-        _LOGGER.info("Master switch entity created")
-        return
+    async_add_entities([MasterSwitch(hass, entry)])
+    _LOGGER.info("Master switch entity created")
 
-    runner = hass.data[DOMAIN]["hub"]["reminders"].get(entry.entry_id)
-    if not runner:
-        _LOGGER.error("Reminder runner not found: %s", entry.entry_id)
-        return
-    
-    # Create and add switch entity
-    switch = ReminderSwitch(runner)
-    async_add_entities([switch])
-    
-    _LOGGER.info("Switch entity created for reminder: %s", runner.name)
+    reminders = hass.data[DOMAIN]["hub"]["reminders"]
+    for subentry_id, subentry in entry.subentries.items():
+        if subentry.subentry_type != SUBENTRY_TYPE_REMINDER:
+            continue
+        runner = reminders.get(subentry_id)
+        if not runner:
+            _LOGGER.error("Reminder runner not found for subentry %s", subentry_id)
+            continue
+        async_add_entities(
+            [ReminderSwitch(runner)], config_subentry_id=subentry_id
+        )
+        _LOGGER.info("Switch entity created for reminder: %s", runner.name)
 
 
 class ReminderSwitch(SwitchEntity):
@@ -86,7 +87,9 @@ class ReminderSwitch(SwitchEntity):
             runner: ReminderRunner instance
         """
         self._runner = runner
-        self._attr_unique_id = f"{DOMAIN}_{runner.entry_id}"
+        # Keyed on the reminder's stable uid (the legacy entry_id for migrated
+        # reminders) so switch.* entity_ids survive the move to subentries.
+        self._attr_unique_id = f"{DOMAIN}_{runner.uid}"
         self._attr_has_entity_name = False
         
         # Initialize attributes from runner
@@ -145,30 +148,25 @@ class ReminderSwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the reminder (enable it)."""
         if not self._runner.is_enabled:
-            _LOGGER.info("Enabling reminder: %s", self._runner.name)
-            
-            # Persist to config entry; the entry update-listener applies the
-            # reconfigure, so don't also call async_reconfigure here (double work).
-            config = dict(self._runner._entry.data)
-            config[CONF_ENABLED] = True
-            self.hass.config_entries.async_update_entry(
-                self._runner._entry,
-                data=config,
-            )
+            await self._set_enabled(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the reminder (disable it)."""
         if self._runner.is_enabled:
-            _LOGGER.info("Disabling reminder: %s", self._runner.name)
-            
-            # Persist to config entry; the entry update-listener applies the
-            # reconfigure, so don't also call async_reconfigure here (double work).
-            config = dict(self._runner._entry.data)
-            config[CONF_ENABLED] = False
-            self.hass.config_entries.async_update_entry(
-                self._runner._entry,
-                data=config,
-            )
+            await self._set_enabled(False)
+
+    async def _set_enabled(self, enabled: bool) -> None:
+        """Persist enabled state to the subentry and reload the hub to apply."""
+        _LOGGER.info(
+            "%s reminder: %s", "Enabling" if enabled else "Disabling", self._runner.name
+        )
+        runner = self._runner
+        hub = runner._hub_entry
+        subentry = runner._subentry
+        self.hass.config_entries.async_update_subentry(
+            hub, subentry, data={**subentry.data, CONF_ENABLED: enabled}
+        )
+        await self.hass.config_entries.async_reload(hub.entry_id)
 
     @property
     def icon(self) -> str:
@@ -181,7 +179,7 @@ class ReminderSwitch(SwitchEntity):
     def device_info(self) -> dict[str, Any]:
         """Return device information for grouping in UI."""
         return {
-            "identifiers": {(DOMAIN, self._runner.entry_id)},
+            "identifiers": {(DOMAIN, self._runner.uid)},
             "name": self._runner.name,
             "manufacturer": "Actionable Reminders",
             "model": "Reminder",

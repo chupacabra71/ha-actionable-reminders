@@ -15,7 +15,8 @@ the integration. Constants are organized by scope:
 
 DOMAIN = "actionable_reminders"
 CONF_TYPE_HUB = "hub"                     # Hub entry type
-CONF_TYPE_REMINDER = "reminder"           # Individual reminder type
+CONF_TYPE_REMINDER = "reminder"           # Individual reminder type (legacy standalone entry)
+SUBENTRY_TYPE_REMINDER = "reminder"       # Reminder subentry type (current model)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
