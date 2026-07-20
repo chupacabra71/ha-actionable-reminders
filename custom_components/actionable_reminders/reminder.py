@@ -374,6 +374,10 @@ class ReminderRunner:
         if not self._enabled:
             return
 
+        # Master kill switch — when off, nothing fires (any reminder).
+        if not self.hass.data.get(DOMAIN, {}).get("hub", {}).get("master_enabled", True):
+            return
+
         # async_track_time_interval fires with a UTC datetime, but every gate
         # below (quiet hours, schedule_time, earliest_retry_time) compares
         # now.time() against local "HH:MM" strings. Without this the whole

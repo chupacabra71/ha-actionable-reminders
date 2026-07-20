@@ -17,7 +17,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    CONF_TYPE_HUB,
+    CONF_MASTER_ENABLED,
+    DEFAULT_MASTER_ENABLED,
     SIGNAL_REMINDER_UPDATE,
+    SIGNAL_MASTER_UPDATED,
     CONF_REMINDER_NAME,
     CONF_ENABLED,
     STATE_LAST_DONE,
@@ -47,7 +51,13 @@ async def async_setup_entry(
     if DOMAIN not in hass.data or "hub" not in hass.data[DOMAIN]:
         _LOGGER.error("Hub not found when setting up switch")
         return
-    
+
+    # The hub entry gets the global master on/off switch.
+    if entry.data.get("type") == CONF_TYPE_HUB:
+        async_add_entities([MasterSwitch(hass, entry)])
+        _LOGGER.info("Master switch entity created")
+        return
+
     runner = hass.data[DOMAIN]["hub"]["reminders"].get(entry.entry_id)
     if not runner:
         _LOGGER.error("Reminder runner not found: %s", entry.entry_id)
@@ -184,4 +194,74 @@ class ReminderSwitch(SwitchEntity):
             "manufacturer": "Actionable Reminders",
             "model": "Reminder",
             "sw_version": "1.0.0",
+        }
+
+
+class MasterSwitch(SwitchEntity):
+    """Global on/off switch for the whole integration.
+
+    When off, no reminder or calendar-sourced prompt fires. The authoritative
+    flag lives in hass.data[DOMAIN]["hub"]["master_enabled"] (read by every
+    reminder tick and the calendar poll) and is persisted to the hub entry so
+    it survives restarts.
+    """
+
+    _attr_has_entity_name = False
+    _attr_name = "Actionable Reminders Master"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the master switch."""
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_master"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to master-state changes (e.g. from a restore)."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_MASTER_UPDATED, self.async_write_ha_state
+            )
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return whether reminders are globally enabled."""
+        return bool(
+            self.hass.data.get(DOMAIN, {})
+            .get("hub", {})
+            .get("master_enabled", DEFAULT_MASTER_ENABLED)
+        )
+
+    @property
+    def icon(self) -> str:
+        """Return the icon for this entity."""
+        return "mdi:bell-ring" if self.is_on else "mdi:bell-off"
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable all reminders."""
+        await self._set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Silence all reminders."""
+        await self._set(False)
+
+    async def _set(self, enabled: bool) -> None:
+        """Update the master flag, persist it, and refresh the entity."""
+        hub = self.hass.data.get(DOMAIN, {}).get("hub")
+        if hub is not None:
+            hub["master_enabled"] = enabled
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            data={**self._entry.data, CONF_MASTER_ENABLED: enabled},
+        )
+        _LOGGER.info("Master switch turned %s", "on" if enabled else "off")
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Group under the hub device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": "Actionable Reminders Hub",
+            "manufacturer": "Actionable Reminders",
+            "model": "Hub",
         }

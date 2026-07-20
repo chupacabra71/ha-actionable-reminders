@@ -25,6 +25,8 @@ from .const import (
     CONF_TYPE_HUB,
     CONF_TYPE_REMINDER,
     CONF_REMINDERS_CALENDAR,
+    CONF_MASTER_ENABLED,
+    DEFAULT_MASTER_ENABLED,
     SERVICE_MARK_DONE,
     SERVICE_DISMISS,
     SERVICE_SKIP_TODAY,
@@ -40,7 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 # Platforms set up on a reminder entry (per-reminder switch) and on the hub
 # entry (the aggregate to-do list), respectively.
 PLATFORMS = [Platform.SWITCH]
-HUB_PLATFORMS = [Platform.TODO]
+HUB_PLATFORMS = [Platform.TODO, Platform.SWITCH]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -99,6 +101,8 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entry": entry,
         "config": dict(entry.data),
         "reminders": {},  # Will store ReminderRunner instances keyed by entry_id
+        # Master kill switch — when False, no reminder or calendar prompt fires.
+        "master_enabled": entry.data.get(CONF_MASTER_ENABLED, DEFAULT_MASTER_ENABLED),
     }
     
     # Register integration services

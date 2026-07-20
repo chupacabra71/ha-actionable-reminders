@@ -73,6 +73,10 @@ class CalendarSource:
 
     async def _tick(self, now: datetime) -> None:
         """Fetch events and drive lead / day-of notifications."""
+        # Master kill switch — when off, no calendar prompt fires.
+        if not self.hass.data.get(DOMAIN, {}).get("hub", {}).get("master_enabled", True):
+            return
+
         # async_track_time_interval fires in UTC; the wake-window check below
         # compares now.time() against local WAKE_START/WAKE_END. Normalize.
         now = dt_util.as_local(now)

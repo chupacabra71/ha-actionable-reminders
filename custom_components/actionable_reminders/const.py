@@ -37,6 +37,10 @@ EVENT_COMPLETED = f"{DOMAIN}_completed"
 CONF_REMINDERS_CALENDAR = "reminders_calendar"                   # Calendar entity whose events become reminders
 SERVICE_CALENDAR_ACK = "calendar_ack"                            # Ack a calendar-sourced reminder (data: event_key)
 
+# Master switch — global kill switch for ALL reminder/calendar notifications
+CONF_MASTER_ENABLED = "master_enabled"                           # Hub-level: when False, nothing prompts
+SIGNAL_MASTER_UPDATED = f"{DOMAIN}_master_updated"               # Fired when the master switch toggles
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hub-Level Configuration (Global Defaults)
@@ -135,6 +139,7 @@ DEFAULT_ESCALATION_INTERVAL = 15                                 # 15 minutes du
 DEFAULT_MAX_ESCALATIONS = 5                                      # 5 escalations before auto-skip
 DEFAULT_EARLIEST_RETRY_TIME = "10:00"                            # Restart at 10 AM after auto-skip
 DEFAULT_ACTIONABLE = True                                        # Actionable by default
+DEFAULT_MASTER_ENABLED = True                                    # Master switch on by default
 DEFAULT_LEAD_TIMES = []                                          # No pre-notifications by default
 DEFAULT_NAG = True                                               # Nag until done by default
 DEFAULT_QUIET_START = "22:00"                                    # 10 PM
