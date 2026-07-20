@@ -373,7 +373,13 @@ class ReminderRunner:
         """Handle timer tick (runs every minute)."""
         if not self._enabled:
             return
-        
+
+        # async_track_time_interval fires with a UTC datetime, but every gate
+        # below (quiet hours, schedule_time, earliest_retry_time) compares
+        # now.time() against local "HH:MM" strings. Without this the whole
+        # schedule is evaluated in UTC — the cause of pre-dawn nagging.
+        now = dt_util.as_local(now)
+
         # Reset daily state at midnight
         await self._check_daily_reset(now)
 
