@@ -79,6 +79,17 @@ CONF_SCHEDULE_TIME = "schedule_time"                             # Time (HH:MM)
 CONF_ONCE_DATE = "once_date"                                     # One-time: target date (YYYY-MM-DD)
 CONF_ANNIVERSARY_DATE = "anniversary_date"                       # Yearly: date; MM-DD recurs, YYYY for age
 CONF_DUE_TEMPLATE = "due_template"                               # Condition: due while this Jinja renders truthy
+# Condition sub-modes — generalize the `condition` source into richer due anchors.
+CONF_CONDITION_MODE = "condition_mode"                           # "template" | "accumulator" | "threshold"
+# Accumulator: due when a monotonic source climbs `limit` since the last completion.
+CONF_ACCUM_SOURCE = "accumulator_source"                         # Entity whose value accumulates (runtime, cycles)
+CONF_ACCUM_LIMIT = "accumulator_limit"                           # Fire when (current - baseline) >= limit
+CONF_ACCUM_RESET_ON_DONE = "accumulator_reset_on_done"          # True: re-baseline to current on mark_done (monotonic source); False: source self-resets, compare raw value >= limit
+# Threshold: due when a live sensor crosses a value (with hysteresis to stop flapping).
+CONF_THRESHOLD_ENTITY = "threshold_entity"                       # Entity to watch
+CONF_THRESHOLD_BELOW = "threshold_below"                         # Due when value <= this
+CONF_THRESHOLD_ABOVE = "threshold_above"                         # Due when value >= this
+CONF_THRESHOLD_HYSTERESIS = "threshold_hysteresis"              # Recovery buffer before clearing
 CONF_ON_COMPLETE = "on_complete"                                 # Native HA action sequence to run on completion
 CONF_SCHEDULE_DAYS = "schedule_days"                             # Weekly: ["mon", "tue", ...]
 CONF_SCHEDULE_MONTHLY_TYPE = "schedule_monthly_type"             # "day" or "week_pattern"
@@ -129,6 +140,7 @@ STATE_ESCALATED = "escalated"                                    # Whether curre
 STATE_ESCALATIONS_TODAY = "escalations_today"                    # Number of escalations today
 STATE_AUTO_SKIPPED = "auto_skipped"                              # Auto-skipped for today
 STATE_RESET_DAY = "reset_day"                                    # Date (YYYY-MM-DD) daily counters last reset
+STATE_ACCUM_BASELINE = "accumulator_baseline"                    # Source value captured at last completion (accumulator mode)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

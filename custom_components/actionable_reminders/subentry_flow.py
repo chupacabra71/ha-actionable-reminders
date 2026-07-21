@@ -26,6 +26,14 @@ from .const import (
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
     CONF_DUE_TEMPLATE,
+    CONF_CONDITION_MODE,
+    CONF_ACCUM_SOURCE,
+    CONF_ACCUM_LIMIT,
+    CONF_ACCUM_RESET_ON_DONE,
+    CONF_THRESHOLD_ENTITY,
+    CONF_THRESHOLD_BELOW,
+    CONF_THRESHOLD_ABOVE,
+    CONF_THRESHOLD_HYSTERESIS,
     CONF_ON_COMPLETE,
     CONF_LEAD_TIMES,
     CONF_NAG,
@@ -137,7 +145,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                         {"label": "Monthly", "value": "monthly"},
                         {"label": "Yearly", "value": "yearly"},
                         {"label": "One-time", "value": "once"},
-                        {"label": "Condition (template)", "value": "condition"},
+                        {"label": "Condition (template / accumulator / threshold)", "value": "condition"},
                     ],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
@@ -159,6 +167,8 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             self._data.update(user_input)
             if stype == "monthly" and self._data.get(CONF_SCHEDULE_MONTHLY_TYPE) == "week_pattern":
                 return await self.async_step_monthly()
+            if stype == "condition":
+                return await self.async_step_condition_detail()
             return await self.async_step_behavior()
 
         d = self._data
@@ -186,9 +196,17 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         elif stype == "condition":
             schema = vol.Schema({
                 vol.Required(
-                    CONF_DUE_TEMPLATE,
-                    description={"suggested_value": d.get(CONF_DUE_TEMPLATE)},
-                ): selector.TemplateSelector(),
+                    CONF_CONDITION_MODE, default=d.get(CONF_CONDITION_MODE, "template"),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Template (Jinja)", "value": "template"},
+                            {"label": "Accumulator (device data since done)", "value": "accumulator"},
+                            {"label": "Threshold (live sensor crosses a value)", "value": "threshold"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
             })
         elif stype == "yearly":
             schema = vol.Schema({
@@ -261,6 +279,90 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             ),
         })
         return self.async_show_form(step_id="monthly", data_schema=schema)
+
+    # ── step 2b: condition detail (template / accumulator / threshold) ───────
+
+    async def async_step_condition_detail(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        mode = self._data.get(CONF_CONDITION_MODE, "template")
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_behavior()
+
+        d = self._data
+        if mode == "accumulator":
+            schema = vol.Schema({
+                vol.Required(
+                    CONF_ACCUM_SOURCE,
+                    description={"suggested_value": d.get(CONF_ACCUM_SOURCE)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["sensor", "input_number", "counter"])
+                ),
+                vol.Required(
+                    CONF_ACCUM_LIMIT,
+                    description={"suggested_value": d.get(CONF_ACCUM_LIMIT)},
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Required(
+                    CONF_ACCUM_RESET_ON_DONE,
+                    default=d.get(CONF_ACCUM_RESET_ON_DONE, True),
+                ): bool,
+            })
+            info = (
+                "Due when the source climbs by the limit since the last completion. "
+                "Reset-on-done ON = the source is a lifetime/monotonic value and the "
+                "engine re-baselines on completion (no external reset needed). "
+                "OFF = the source resets itself, so due = value ≥ limit."
+            )
+        elif mode == "threshold":
+            schema = vol.Schema({
+                vol.Required(
+                    CONF_THRESHOLD_ENTITY,
+                    description={"suggested_value": d.get(CONF_THRESHOLD_ENTITY)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["sensor", "input_number"])
+                ),
+                vol.Optional(
+                    CONF_THRESHOLD_BELOW,
+                    description={"suggested_value": d.get(CONF_THRESHOLD_BELOW)},
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_THRESHOLD_ABOVE,
+                    description={"suggested_value": d.get(CONF_THRESHOLD_ABOVE)},
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_THRESHOLD_HYSTERESIS,
+                    description={"suggested_value": d.get(CONF_THRESHOLD_HYSTERESIS)},
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+            })
+            info = (
+                "Due when the sensor drops to/below 'below' (or rises to/above 'above') "
+                "— set one. Hysteresis is the recovery buffer before it clears, to stop flapping."
+            )
+        else:  # template
+            schema = vol.Schema({
+                vol.Required(
+                    CONF_DUE_TEMPLATE,
+                    description={"suggested_value": d.get(CONF_DUE_TEMPLATE)},
+                ): selector.TemplateSelector(),
+            })
+            info = (
+                "Jinja template — the reminder is due whenever it renders true. "
+                "Variables days_since_done and last_done are available."
+            )
+        return self.async_show_form(
+            step_id="condition_detail",
+            data_schema=schema,
+            description_placeholders={"info": info},
+        )
 
     # ── step 3: behavior ────────────────────────────────────────────────────
 
@@ -412,7 +514,19 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         elif stype == "yearly":
             config[CONF_ANNIVERSARY_DATE] = d.get(CONF_ANNIVERSARY_DATE)
         elif stype == "condition":
-            config[CONF_DUE_TEMPLATE] = d.get(CONF_DUE_TEMPLATE)
+            mode = d.get(CONF_CONDITION_MODE, "template")
+            config[CONF_CONDITION_MODE] = mode
+            if mode == "accumulator":
+                config[CONF_ACCUM_SOURCE] = d.get(CONF_ACCUM_SOURCE)
+                config[CONF_ACCUM_LIMIT] = d.get(CONF_ACCUM_LIMIT)
+                config[CONF_ACCUM_RESET_ON_DONE] = d.get(CONF_ACCUM_RESET_ON_DONE, True)
+            elif mode == "threshold":
+                config[CONF_THRESHOLD_ENTITY] = d.get(CONF_THRESHOLD_ENTITY)
+                for k in (CONF_THRESHOLD_BELOW, CONF_THRESHOLD_ABOVE, CONF_THRESHOLD_HYSTERESIS):
+                    if d.get(k) not in (None, ""):
+                        config[k] = d.get(k)
+            else:
+                config[CONF_DUE_TEMPLATE] = d.get(CONF_DUE_TEMPLATE)
         elif stype == "monthly":
             mtype = d.get(CONF_SCHEDULE_MONTHLY_TYPE, "day")
             config[CONF_SCHEDULE_MONTHLY_TYPE] = mtype

@@ -39,6 +39,14 @@ from .const import (
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
     CONF_DUE_TEMPLATE,
+    CONF_CONDITION_MODE,
+    CONF_ACCUM_SOURCE,
+    CONF_ACCUM_LIMIT,
+    CONF_ACCUM_RESET_ON_DONE,
+    CONF_THRESHOLD_ENTITY,
+    CONF_THRESHOLD_BELOW,
+    CONF_THRESHOLD_ABOVE,
+    CONF_THRESHOLD_HYSTERESIS,
     CONF_ON_COMPLETE,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
@@ -84,6 +92,7 @@ from .const import (
     STATE_ESCALATIONS_TODAY,
     STATE_AUTO_SKIPPED,
     STATE_RESET_DAY,
+    STATE_ACCUM_BASELINE,
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
@@ -181,6 +190,7 @@ class ReminderRunner:
             STATE_ESCALATIONS_TODAY: 0,
             STATE_AUTO_SKIPPED: False,
             STATE_RESET_DAY: None,
+            STATE_ACCUM_BASELINE: None,
         }
         self._store = Store(
             hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{self.uid}"
@@ -191,6 +201,8 @@ class ReminderRunner:
         self._started = False
         self._removing = False        # set while the reminder is being removed
         self._tmpl_warned = False     # de-spam due_template render errors
+        self._accum_warned = False    # de-spam accumulator source-read errors
+        self._thresh_latched = False  # in-memory hysteresis latch (threshold mode)
         self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
 
         # Timer and event listeners
@@ -286,6 +298,15 @@ class ReminderRunner:
         self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
         self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
         self.due_template = config.get(CONF_DUE_TEMPLATE)  # condition source
+        # Condition sub-mode (default template = pre-existing behavior).
+        self.condition_mode = config.get(CONF_CONDITION_MODE, "template")
+        self.accum_source = config.get(CONF_ACCUM_SOURCE)
+        self.accum_limit = config.get(CONF_ACCUM_LIMIT)
+        self.accum_reset_on_done = config.get(CONF_ACCUM_RESET_ON_DONE, True)
+        self.threshold_entity = config.get(CONF_THRESHOLD_ENTITY)
+        self.threshold_below = config.get(CONF_THRESHOLD_BELOW)
+        self.threshold_above = config.get(CONF_THRESHOLD_ABOVE)
+        self.threshold_hysteresis = config.get(CONF_THRESHOLD_HYSTERESIS) or 0
         self.on_complete = config.get(CONF_ON_COMPLETE) or []  # HA action sequence
 
     async def async_reconfigure(self, config: dict[str, Any]) -> None:
@@ -506,10 +527,11 @@ class ReminderRunner:
 
     def _is_scheduled(self, now: datetime) -> bool:
         """Check if current time matches the schedule."""
-        # Condition-based reminders are due whenever the template is truthy
-        # (no time-of-day gate).
+        # Condition-based reminders are due whenever their anchor is satisfied
+        # (no time-of-day gate). The anchor is a template, an accumulator, or a
+        # threshold depending on condition_mode.
         if self.schedule_type == "condition":
-            return self._eval_due_template()
+            return self._eval_condition()
 
         # Parse schedule time
         hour, minute = _time_parts(self.schedule_time, (9, 0))
@@ -670,9 +692,130 @@ class ReminderRunner:
             return res
         return str(res).strip().lower() in ("true", "on", "yes", "1")
 
+    def _eval_condition(self) -> bool:
+        """Dispatch a condition reminder to its configured anchor."""
+        if self.condition_mode == "accumulator":
+            return self._eval_accumulator()
+        if self.condition_mode == "threshold":
+            return self._eval_threshold()
+        return self._eval_due_template()
+
+    def _read_numeric(self, entity_id: str | None) -> float | None:
+        """Read an entity's numeric state, or None if missing/non-numeric."""
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None, ""):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def _eval_accumulator(self) -> bool:
+        """Due when a monotonic source has climbed `limit` since the last done.
+
+        `reset_on_done` True (default): the source is a lifetime/monotonic value;
+        a baseline is captured at each completion and due fires when
+        `current - baseline >= limit`. A missing baseline is seeded to the
+        current value, so a fresh reminder starts counting from now rather than
+        firing immediately.
+
+        `reset_on_done` False: the source resets itself on completion (e.g. an
+        external automation zeroes it), so due is simply `current >= limit`.
+        """
+        limit = self._read_numeric_config(self.accum_limit)
+        cur = self._read_numeric(self.accum_source)
+        if limit is None or cur is None:
+            if cur is None and not self._accum_warned:
+                _LOGGER.warning(
+                    "accumulator source %s unavailable for %s",
+                    self.accum_source, self.name,
+                )
+                self._accum_warned = True
+            return False
+        self._accum_warned = False
+        if not self.accum_reset_on_done:
+            return cur >= limit
+        base = self._state.get(STATE_ACCUM_BASELINE)
+        if base is None:
+            # Seed the baseline on first evaluation so it counts from now.
+            self._state[STATE_ACCUM_BASELINE] = cur
+            self.hass.async_create_task(self._save_state())
+            return False
+        return (cur - base) >= limit
+
+    def _eval_threshold(self) -> bool:
+        """Due when a live sensor crosses `below`/`above`, with hysteresis.
+
+        The latch is in-memory: it recomputes from the current value after a
+        restart, so no persisted state is needed.
+        """
+        val = self._read_numeric(self.threshold_entity)
+        if val is None:
+            return self._thresh_latched
+        below = self._read_numeric_config(self.threshold_below)
+        above = self._read_numeric_config(self.threshold_above)
+        hyst = float(self.threshold_hysteresis or 0)
+        if below is not None:
+            if self._thresh_latched:
+                if val >= below + hyst:
+                    self._thresh_latched = False
+            elif val <= below:
+                self._thresh_latched = True
+        elif above is not None:
+            if self._thresh_latched:
+                if val <= above - hyst:
+                    self._thresh_latched = False
+            elif val >= above:
+                self._thresh_latched = True
+        return self._thresh_latched
+
+    @staticmethod
+    def _read_numeric_config(value: Any) -> float | None:
+        """Coerce a config number (which may arrive as str) to float, or None."""
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def condition_status(self) -> dict[str, Any]:
+        """Progress/state attributes for the switch entity (condition modes)."""
+        if self.schedule_type != "condition":
+            return {}
+        out: dict[str, Any] = {"condition_mode": self.condition_mode}
+        if self.condition_mode == "accumulator":
+            cur = self._read_numeric(self.accum_source)
+            limit = self._read_numeric_config(self.accum_limit)
+            base = self._state.get(STATE_ACCUM_BASELINE)
+            if self.accum_reset_on_done and base is not None:
+                accumulated = None if cur is None else cur - base
+            else:
+                accumulated = cur
+            out["accumulator_source"] = self.accum_source
+            out["accumulator_current"] = cur
+            out["accumulator_baseline"] = base
+            out["accumulator_limit"] = limit
+            out["accumulator_accumulated"] = (
+                None if accumulated is None else round(accumulated, 2)
+            )
+            if accumulated is not None and limit:
+                out["accumulator_remaining"] = round(max(limit - accumulated, 0), 2)
+                out["accumulator_progress_pct"] = round(
+                    min(max(accumulated / limit * 100, 0), 100), 1
+                )
+        elif self.condition_mode == "threshold":
+            out["threshold_entity"] = self.threshold_entity
+            out["threshold_value"] = self._read_numeric(self.threshold_entity)
+            out["threshold_below"] = self._read_numeric_config(self.threshold_below)
+            out["threshold_above"] = self._read_numeric_config(self.threshold_above)
+        return out
+
     def is_condition_due(self) -> bool:
         """Whether a condition reminder is currently due (for the to-do list)."""
-        return self.schedule_type == "condition" and self._eval_due_template()
+        return self.schedule_type == "condition" and self._eval_condition()
 
     def _in_quiet_hours(self, now: datetime) -> bool:
         """Check if current time is in quiet hours."""
@@ -1104,9 +1247,21 @@ class ReminderRunner:
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
         self._state[STATE_AUTO_SKIPPED] = False
-        
+
+        # Accumulator re-anchor: capture the source's current value as the new
+        # baseline so "accumulated since done" restarts from zero — this is what
+        # replaces an external reset automation.
+        if (
+            self.schedule_type == "condition"
+            and self.condition_mode == "accumulator"
+            and self.accum_reset_on_done
+        ):
+            cur = self._read_numeric(self.accum_source)
+            if cur is not None:
+                self._state[STATE_ACCUM_BASELINE] = cur
+
         await self._save_state()
-        
+
         # Send acknowledgment
         ack_msg = random.choice(self.ack_messages)
         await self._send_ack(ack_msg)

@@ -46,7 +46,8 @@
             "anniversary_date": "Date",
             "once_date": "Date",
             "schedule_monthly_type": "Monthly pattern",
-            "schedule_monthly_day": "Day of the month"
+            "schedule_monthly_day": "Day of the month",
+            "condition_mode": "How 'due' is decided"
           },
           "data_description": {
             "schedule_time": "Nothing fires before this time (and never during quiet hours).",
@@ -55,7 +56,8 @@
             "anniversary_date": "The anniversary/birthday. Include the year to announce an age.",
             "once_date": "The day this one-time reminder is due.",
             "schedule_monthly_type": "A specific day of the month, or a week pattern like \"first Wednesday\".",
-            "schedule_monthly_day": "1-31. Months that are shorter fire on their last day."
+            "schedule_monthly_day": "1-31. Months that are shorter fire on their last day.",
+            "condition_mode": "Template = a Jinja condition; Accumulator = device data since last done (runtime, cycles); Threshold = a live sensor crossing a value."
           }
         },
         "monthly": {
@@ -124,6 +126,30 @@
             "quiet_start": "Nothing fires after this time. Empty = hub default.",
             "quiet_end": "Nothing fires before this time. Empty = hub default.",
             "on_complete": "Actions to run when this reminder is marked done — e.g. press a button to reset a counter. No helper automation needed."
+          }
+        },
+        "condition_detail": {
+          "title": "Condition detail",
+          "description": "{info}",
+          "data": {
+            "due_template": "Due when this template is true",
+            "accumulator_source": "Source entity",
+            "accumulator_limit": "Limit",
+            "accumulator_reset_on_done": "Reset on completion",
+            "threshold_entity": "Sensor",
+            "threshold_below": "Due at or below",
+            "threshold_above": "Due at or above",
+            "threshold_hysteresis": "Hysteresis (recovery buffer)"
+          },
+          "data_description": {
+            "due_template": "Jinja template — due whenever it renders true. Variables days_since_done and last_done are available.",
+            "accumulator_source": "A sensor/counter whose value accumulates — e.g. HVAC runtime hours or a cycle count.",
+            "accumulator_limit": "Fire when the source has climbed this much since the last completion.",
+            "accumulator_reset_on_done": "ON: source is a lifetime/monotonic value; the engine re-baselines on completion (no external reset). OFF: the source resets itself, so due = value ≥ limit.",
+            "threshold_entity": "The live sensor to watch.",
+            "threshold_below": "Due when the value drops to or below this.",
+            "threshold_above": "Due when the value rises to or above this.",
+            "threshold_hysteresis": "How far the value must recover past the trip point before the reminder clears — stops flapping."
           }
         }
       },

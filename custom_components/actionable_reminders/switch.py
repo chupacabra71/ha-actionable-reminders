@@ -147,6 +147,8 @@ class ReminderSwitch(SwitchEntity):
             "escalation_interval": self._runner.escalation_interval,
             "max_escalations": self._runner.max_escalations,
         }
+        # Condition-mode progress (accumulator/threshold) for dashboards + urgency.
+        self._attr_extra_state_attributes.update(self._runner.condition_status())
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the reminder (enable it)."""
