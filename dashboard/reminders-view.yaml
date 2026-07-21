@@ -4,18 +4,15 @@
 # Add as a new view on an existing dashboard (Edit dashboard → + Add view →
 # ⋮ Edit in YAML → paste this).
 #
-# Layout: a full-width view `header` holding the title + a live status-chip
-# strip, over two columns — "Due now" (the to-do list) on the left, "All
-# reminders" (status list) on the right. The header is used (not a spanned
-# section) because a short `column_span: 2` section is not reliably honored by
-# the sections masonry and collapses into one column.
+# Design: completion is the primary action. The "Do next" card surfaces the
+# single most-urgent reminder (sensor.reminders_next_up) with one-tap complete /
+# snooze; the list below is urgency-ranked with the same gestures per row.
+# Enabling/disabling a reminder is NOT a primary control — it lives behind
+# double-tap → more-info.
 #
-# Reminder switches are identified in templates by their `schedule_type`
-# attribute; the master switch has none, so it is naturally excluded from the
-# counts. `next_due_date` is exposed from v0.9.0+.
+#   Tap    = mark done      Hold = snooze 2h      Double-tap = details (enable/disable)
 #
-# Custom cards used (all via HACS): mushroom (chips), auto-entities,
-# template-entity-row.
+# Custom cards (all via HACS): mushroom (chips), button-card, auto-entities.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
@@ -23,7 +20,6 @@ icon: mdi:bell-ring
 type: sections
 max_columns: 2
 
-# ── Full-width hero: title + live status chips ──────────────────────────────
 header:
   layout: start
   card:
@@ -35,59 +31,24 @@ header:
       - type: custom:mushroom-chips-card
         alignment: center
         chips:
-          # Master enable — tap to toggle the whole system.
           - type: template
             entity: switch.actionable_reminders_master
             icon: >-
-              {{ 'mdi:bell-ring' if is_state('switch.actionable_reminders_master','on')
-                 else 'mdi:bell-off' }}
+              {{ 'mdi:bell-ring' if is_state('switch.actionable_reminders_master','on') else 'mdi:bell-off' }}
             icon_color: >-
-              {{ 'green' if is_state('switch.actionable_reminders_master','on')
-                 else 'disabled' }}
+              {{ 'green' if is_state('switch.actionable_reminders_master','on') else 'disabled' }}
             content: >-
-              {{ 'All on' if is_state('switch.actionable_reminders_master','on')
-                 else 'All off' }}
+              {{ 'All on' if is_state('switch.actionable_reminders_master','on') else 'All off' }}
             tap_action:
               action: toggle
-
-          # Due now — count comes straight off the to-do list.
+          - type: template
+            icon: mdi:alert-decagram
+            icon_color: "{{ 'red' if state_attr('sensor.reminders_next_up','count')|int(0) > 0 else 'grey' }}"
+            content: "{{ state_attr('sensor.reminders_next_up','count')|int(0) }} need attention"
           - type: template
             icon: mdi:checkbox-marked-circle-outline
             icon_color: "{{ 'orange' if states('todo.actionable_reminders_reminders')|int(0) > 0 else 'grey' }}"
             content: "{{ states('todo.actionable_reminders_reminders')|int(0) }} due"
-
-          # Escalating — red only when something is actually escalating.
-          - type: template
-            icon: mdi:bell-alert
-            icon_color: >-
-              {% set n = states.switch | selectattr('attributes.schedule_type','defined')
-                 | selectattr('attributes.escalated','eq',true) | list | count %}
-              {{ 'red' if n > 0 else 'grey' }}
-            content: >-
-              {% set n = states.switch | selectattr('attributes.schedule_type','defined')
-                 | selectattr('attributes.escalated','eq',true) | list | count %}
-              {{ n }} escalating
-
-          # Enabled / total.
-          - type: template
-            icon: mdi:toggle-switch-outline
-            icon_color: blue
-            content: >-
-              {% set r = states.switch | selectattr('attributes.schedule_type','defined') | list %}
-              {{ r | selectattr('state','eq','on') | list | count }}/{{ r | count }} on
-
-          # Next up — soonest scheduled reminder.
-          - type: template
-            icon: mdi:calendar-arrow-right
-            icon_color: teal
-            content: >-
-              {% set r = states.switch | selectattr('attributes.schedule_type','defined')
-                 | selectattr('attributes.next_due_date','ne',None)
-                 | list | sort(attribute='attributes.next_due_date') %}
-              {% if r %}{{ r[0].name }} · {{ as_timestamp(r[0].attributes.next_due_date ~ ' 00:00:00')
-                 | timestamp_custom('%b %-d') }}{% else %}Nothing scheduled{% endif %}
-
-          # Add a new reminder.
           - type: template
             icon: mdi:plus-circle
             icon_color: green
@@ -95,8 +56,6 @@ header:
             tap_action:
               action: navigate
               navigation_path: /config/integrations/integration/actionable_reminders
-
-          # Manage / edit existing reminders (gear on each row = edit wizard).
           - type: template
             icon: mdi:cog
             icon_color: grey
@@ -106,64 +65,148 @@ header:
               navigation_path: /config/integrations/integration/actionable_reminders
 
 sections:
-  # ── What's due (check off to complete) ─────────────────────────────────────
+  # ── Do next: the single most-urgent reminder ───────────────────────────────
   - type: grid
+    column_span: 2
     cards:
       - type: heading
-        heading: Due now
+        heading: Do next
         heading_style: subtitle
-        icon: mdi:checkbox-marked-circle-outline
+        icon: mdi:target
+      - type: custom:button-card
+        entity: sensor.reminders_next_up
+        show_state: false
+        show_label: true
+        name: "[[[ return states['sensor.reminders_next_up'].attributes.count > 0 ? entity.state : 'All clear' ]]]"
+        label: >-
+          [[[ var a=entity.attributes;
+              if (a.count > 0) { return a.summary + (a.count > 1 ? '   ·   +' + (a.count-1) + ' more' : ''); }
+              return 'Nothing needs doing right now'; ]]]
+        icon: >-
+          [[[ var s=entity.attributes.status;
+              return s==='triggered' ? 'mdi:bell-alert' : s==='overdue' ? 'mdi:bell-ring' : s==='due_soon' ? 'mdi:bell' : 'mdi:check-circle'; ]]]
+        tap_action:
+          action: call-service
+          service: actionable_reminders.mark_done
+          service_data:
+            entry_id: "[[[ return states['sensor.reminders_next_up'].attributes.entry_id; ]]]"
+          confirmation:
+            text: Mark the most urgent reminder done?
+        hold_action:
+          action: call-service
+          service: actionable_reminders.snooze
+          service_data:
+            entry_id: "[[[ return states['sensor.reminders_next_up'].attributes.entry_id; ]]]"
+            duration: "02:00:00"
+        double_tap_action:
+          action: more-info
+        styles:
+          card:
+            - padding: 14px 16px
+            - border-radius: 14px
+            - border-left: >-
+                [[[ var s=entity.attributes.status;
+                    var c = s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : 'var(--success-color)';
+                    return '5px solid ' + (entity.attributes.count>0 ? c : 'var(--success-color)'); ]]]
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-columns: 46px 1fr
+          icon:
+            - width: 32px
+            - color: >-
+                [[[ var s=entity.attributes.status;
+                    return s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : 'var(--success-color)'; ]]]
+          name:
+            - justify-self: start
+            - font-size: 17px
+            - font-weight: '600'
+          label:
+            - justify-self: start
+            - font-size: 13px
+            - color: var(--secondary-text-color)
+            - padding-top: 2px
 
-      # The to-do list already encodes the due logic: enabled + nagging
-      # reminders only, and condition reminders only while actually due.
-      # Checking an item off calls mark_done (runs its on_complete action).
-      - type: todo-list
-        entity: todo.actionable_reminders_reminders
-
-  # ── Everything, with status ────────────────────────────────────────────────
+  # ── All reminders, urgency-ranked ───────────────────────────────────────────
   - type: grid
     cards:
       - type: heading
         heading: All reminders
         heading_style: subtitle
         icon: mdi:format-list-bulleted
-
+      - type: markdown
+        text_only: true
+        content: "Tap = done · hold = snooze 2h · double-tap = details"
       - type: custom:auto-entities
         show_empty: false
         card:
-          type: entities
-          state_color: true
+          type: grid
+          columns: 1
+          square: false
+        card_param: cards
         sort:
           method: attribute
-          attribute: next_due_date
+          attribute: urgency
+          reverse: true
+          numeric: true
         filter:
           include:
             - domain: switch
               integration: actionable_reminders
               options:
-                type: custom:template-entity-row
-                toggle: true
-                tap_action:
-                  action: more-info
+                type: custom:button-card
+                show_state: false
+                show_label: true
+                name: "[[[ return entity.attributes.friendly_name; ]]]"
+                label: "[[[ return entity.attributes.summary || ''; ]]]"
                 icon: >-
-                  {% if state_attr(config.entity,'escalated') %}mdi:bell-alert{% elif
-                  is_state(config.entity,'off') %}mdi:bell-off{% else %}mdi:bell-ring{% endif %}
-                secondary: >-
-                  {% set nd = state_attr(config.entity,'next_due_date') %}
-                  {% set ct = state_attr(config.entity,'schedule_type') == 'condition' %}
-                  {% if is_state(config.entity,'off') %}Disabled
-                  {% elif state_attr(config.entity,'escalated') %}Escalating now
-                  {% elif state_attr(config.entity,'auto_skipped') %}Skipped today
-                  {% elif nd %}
-                    {%- set days = ((as_timestamp(nd ~ ' 00:00:00') - as_timestamp(today_at('00:00'))) / 86400) | round(0,'floor') | int -%}
-                    {%- if days < 0 %}Overdue by {{ -days }}d
-                    {%- elif days == 0 %}Due today
-                    {%- elif days == 1 %}Due tomorrow
-                    {%- else %}Due in {{ days }}d · {{ as_timestamp(nd ~ ' 00:00:00') | timestamp_custom('%b %-d') }}
-                    {%- endif %}
-                  {% elif ct %}Condition-based{% if state_attr(config.entity,'last_done_date') %} · last done {{ state_attr(config.entity,'last_done_date') }}{% endif %}
-                  {% elif state_attr(config.entity,'last_done_date') %}Last done {{ state_attr(config.entity,'last_done_date') }}
-                  {% else %}Never done{% endif %}
+                  [[[ var s=entity.attributes.status;
+                      return s==='triggered' ? 'mdi:bell-alert' : s==='overdue' ? 'mdi:bell-ring' : s==='due_soon' ? 'mdi:bell' : s==='disabled' ? 'mdi:bell-off' : 'mdi:bell-check'; ]]]
+                tap_action:
+                  action: call-service
+                  service: actionable_reminders.mark_done
+                  service_data:
+                    entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                  confirmation:
+                    text: Mark this reminder done?
+                hold_action:
+                  action: call-service
+                  service: actionable_reminders.snooze
+                  service_data:
+                    entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                    duration: "02:00:00"
+                double_tap_action:
+                  action: more-info
+                styles:
+                  card:
+                    - padding: 8px 12px
+                    - border-left: >-
+                        [[[ var s=entity.attributes.status;
+                            var c = s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : s==='disabled' ? 'var(--disabled-text-color)' : 'var(--success-color)';
+                            return '4px solid ' + c; ]]]
+                  grid:
+                    - grid-template-areas: '"i n" "i l"'
+                    - grid-template-columns: 30px 1fr
+                  icon:
+                    - width: 20px
+                    - color: >-
+                        [[[ var s=entity.attributes.status;
+                            return s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : s==='disabled' ? 'var(--disabled-text-color)' : 'var(--success-color)'; ]]]
+                  name:
+                    - justify-self: start
+                    - font-weight: '500'
+                  label:
+                    - justify-self: start
+                    - font-size: 12px
+                    - color: var(--secondary-text-color)
           exclude:
-            # The master switch lives in the header chips above.
             - entity_id: switch.actionable_reminders_master
+
+  # ── Due now (checklist / Assist) ────────────────────────────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Due now
+        heading_style: subtitle
+        icon: mdi:checkbox-marked-circle-outline
+      - type: todo-list
+        entity: todo.actionable_reminders_reminders
