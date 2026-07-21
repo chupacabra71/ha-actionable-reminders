@@ -4,32 +4,34 @@
 # Add as a new view on an existing dashboard (Edit dashboard → + Add view →
 # ⋮ Edit in YAML → paste this).
 #
-# Layout: a full-width hero strip of live status chips over two columns —
-# "Due now" (the to-do list) on the left, "All reminders" (status list) on
-# the right.
+# Layout: a full-width view `header` holding the title + a live status-chip
+# strip, over two columns — "Due now" (the to-do list) on the left, "All
+# reminders" (status list) on the right. The header is used (not a spanned
+# section) because a short `column_span: 2` section is not reliably honored by
+# the sections masonry and collapses into one column.
 #
 # Reminder switches are identified in templates by their `schedule_type`
 # attribute; the master switch has none, so it is naturally excluded from the
 # counts. `next_due_date` is exposed from v0.9.0+.
 #
-# Custom cards used (all via HACS):
-#   mushroom (chips), auto-entities, template-entity-row, card-mod.
+# Custom cards used (all via HACS): mushroom (chips), auto-entities,
+# template-entity-row.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
 icon: mdi:bell-ring
 type: sections
 max_columns: 2
-sections:
-  # ── Hero: title + live status chips ────────────────────────────────────────
-  - type: grid
-    column_span: 2
-    cards:
-      - type: heading
-        heading: Reminders
-        heading_style: title
-        icon: mdi:bell-ring
 
+# ── Full-width hero: title + live status chips ──────────────────────────────
+header:
+  layout: start
+  card:
+    type: vertical-stack
+    cards:
+      - type: markdown
+        text_only: true
+        content: "## Reminders"
       - type: custom:mushroom-chips-card
         alignment: start
         chips:
@@ -94,6 +96,7 @@ sections:
               action: navigate
               navigation_path: /config/integrations/integration/actionable_reminders
 
+sections:
   # ── What's due (check off to complete) ─────────────────────────────────────
   - type: grid
     cards:
@@ -152,18 +155,6 @@ sections:
                   {% elif ct %}Condition-based{% if state_attr(config.entity,'last_done_date') %} · last done {{ state_attr(config.entity,'last_done_date') }}{% endif %}
                   {% elif state_attr(config.entity,'last_done_date') %}Last done {{ state_attr(config.entity,'last_done_date') }}
                   {% else %}Never done{% endif %}
-                card_mod:
-                  style: |
-                    :host {
-                      --paper-item-icon-color:
-                        {% if is_state(config.entity,'off') %}var(--disabled-text-color)
-                        {% elif state_attr(config.entity,'escalated') %}var(--error-color)
-                        {% elif state_attr(config.entity,'next_due_date') and
-                                ((as_timestamp(state_attr(config.entity,'next_due_date') ~ ' 00:00:00')
-                                  - as_timestamp(today_at('00:00'))) / 86400) | round(0,'floor') | int <= 0
-                          %}var(--warning-color)
-                        {% else %}var(--success-color){% endif %};
-                    }
           exclude:
-            # The master switch lives in the hero chips above.
+            # The master switch lives in the header chips above.
             - entity_id: switch.actionable_reminders_master
