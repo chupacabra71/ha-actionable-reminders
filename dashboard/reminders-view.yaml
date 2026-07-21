@@ -33,7 +33,7 @@ header:
         text_only: true
         content: "## Reminders"
       - type: custom:mushroom-chips-card
-        alignment: start
+        alignment: center
         chips:
           # Master enable — tap to toggle the whole system.
           - type: template
