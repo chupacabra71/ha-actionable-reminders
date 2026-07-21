@@ -180,15 +180,15 @@ class ReminderSwitch(SwitchEntity):
         return "mdi:bell-off"
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        """Return device information for grouping in UI."""
-        return {
-            "identifiers": {(DOMAIN, self._runner.uid)},
-            "name": self._runner.name,
-            "manufacturer": "Actionable Reminders",
-            "model": "Reminder",
-            "sw_version": "1.0.0",
-        }
+    def device_info(self) -> dict[str, Any] | None:
+        """No per-reminder device.
+
+        Each reminder is already its own config subentry; giving it a device
+        too made the integration page list every reminder twice (subentry row
+        + device row). Returning None keeps one clean row per reminder, whose
+        gear opens the reconfigure wizard.
+        """
+        return None
 
 
 class MasterSwitch(SwitchEntity):
