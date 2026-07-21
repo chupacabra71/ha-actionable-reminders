@@ -51,7 +51,7 @@
           "data_description": {
             "schedule_time": "Nothing fires before this time (and never during quiet hours).",
             "schedule_days": "Which days it should run.",
-            "due_template": "Jinja template. `days_since_done` and `last_done` are available — e.g. `{{ days_since_done >= 7 }}`.",
+            "due_template": "Jinja template — the reminder is due whenever it renders true. Variables `days_since_done` and `last_done` are available (example: days_since_done >= 7).",
             "anniversary_date": "The anniversary/birthday. Include the year to announce an age.",
             "once_date": "The day this one-time reminder is due.",
             "schedule_monthly_type": "A specific day of the month, or a week pattern like \"first Wednesday\".",
