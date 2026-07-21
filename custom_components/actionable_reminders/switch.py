@@ -251,11 +251,14 @@ class MasterSwitch(SwitchEntity):
         self.async_write_ha_state()
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        """Group under the hub device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Actionable Reminders Hub",
-            "manufacturer": "Actionable Reminders",
-            "model": "Hub",
-        }
+    def device_info(self) -> dict[str, Any] | None:
+        """No hub device.
+
+        The master switch and the aggregate to-do are hub-level entities that
+        belong to no reminder subentry. Giving them a hub device made the
+        integration page show a "Devices that don't belong to a sub-entry"
+        section; matching the convention used by other subentry integrations
+        (OpenAI, etc.), the parent entry carries no device. Both stay reachable
+        from the entry's ⋮ → entities.
+        """
+        return None

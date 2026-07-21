@@ -74,12 +74,13 @@ class RemindersTodoList(TodoListEntity):
         self._attr_unique_id = f"{DOMAIN}_reminders_todo"
 
     @property
-    def device_info(self) -> dict:
-        """Attach to the hub device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Actionable Reminders",
-        }
+    def device_info(self) -> dict | None:
+        """No hub device — hub-level entity with no owning subentry.
+
+        See ReminderMasterSwitch.device_info; the parent entry carries no
+        device to avoid the "Devices that don't belong to a sub-entry" section.
+        """
+        return None
 
     def _runners(self) -> dict:
         """Return the live {entry_id: runner} registry, or empty."""
