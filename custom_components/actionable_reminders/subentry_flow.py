@@ -37,6 +37,7 @@ from .const import (
     CONF_ON_COMPLETE,
     CONF_LEAD_TIMES,
     CONF_NAG,
+    CONF_MANDATORY,
     CONF_ALLOW_CRITICAL,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
@@ -385,6 +386,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             vol.Optional("lead_times_text", default=lead_default): selector.TextSelector(),
             vol.Required(CONF_OPTIONAL, default=d.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)): bool,
             vol.Required(CONF_UNTIL_DONE, default=d.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)): bool,
+            vol.Required(CONF_MANDATORY, default=d.get(CONF_MANDATORY, False)): bool,
         })
         return self.async_show_form(
             step_id="behavior",
@@ -538,7 +540,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
 
         # Behavior + advanced: copy through whatever the wizard collected.
         for key in (
-            CONF_NAG, CONF_ALLOW_CRITICAL, CONF_OPTIONAL, CONF_UNTIL_DONE, CONF_LEAD_TIMES,
+            CONF_NAG, CONF_MANDATORY, CONF_ALLOW_CRITICAL, CONF_OPTIONAL, CONF_UNTIL_DONE, CONF_LEAD_TIMES,
             CONF_MOBILE_SERVICE, CONF_ALEXA_DEVICES, CONF_ACTIONABLE, CONF_ESCALATION_VOLUME,
             CONF_RETRY_INTERVAL, CONF_MAX_RETRIES, CONF_ESCALATION_INTERVAL, CONF_MAX_ESCALATIONS,
             CONF_PRESENCE_SENSORS, CONF_CATCHUP_ON_ARRIVAL, CONF_QUIET_START, CONF_QUIET_END,

@@ -37,6 +37,8 @@ from .const import (
     SERVICE_SKIP_TODAY,
     SERVICE_FORCE_PROMPT,
     SERVICE_SET_ACCUM_BASELINE,
+    SERVICE_SNOOZE,
+    SERVICE_RESCHEDULE,
     SERVICE_CALENDAR_ACK,
     SIGNAL_REMINDERS_UPDATED,
 )
@@ -384,13 +386,35 @@ async def _register_services(hass: HomeAssistant) -> None:
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
 
+    async def handle_snooze(call: ServiceCall) -> None:
+        """Defer a reminder by a duration."""
+        entry_id = call.data.get("entry_id")
+        runner = _get_runner_by_id(hass, entry_id)
+        if runner:
+            await runner.async_snooze(
+                call.data["duration"], context=call.context, source=call.data.get("source")
+            )
+        else:
+            _LOGGER.error("Reminder not found: %s", entry_id)
+
+    async def handle_reschedule(call: ServiceCall) -> None:
+        """Move a scheduled reminder's next due date."""
+        entry_id = call.data.get("entry_id")
+        runner = _get_runner_by_id(hass, entry_id)
+        if runner:
+            await runner.async_reschedule_next(
+                str(call.data["date"]), context=call.context, source=call.data.get("source")
+            )
+        else:
+            _LOGGER.error("Reminder not found: %s", entry_id)
+
     async def handle_calendar_ack(call: ServiceCall) -> None:
         """Ack a calendar-sourced reminder (from its Done button)."""
         event_key = call.data.get("event_key")
         hub = hass.data.get(DOMAIN, {}).get("hub", {})
         source = hub.get("calendar_source")
         if source and event_key:
-            source.ack(event_key)
+            await source.ack(event_key)
 
     # Register services with Home Assistant
     hass.services.async_register(
@@ -444,6 +468,28 @@ async def _register_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(
         DOMAIN,
+        SERVICE_SNOOZE,
+        handle_snooze,
+        schema=vol.Schema({
+            vol.Required("entry_id"): cv.string,
+            vol.Required("duration"): cv.time_period,
+            vol.Optional("source"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESCHEDULE,
+        handle_reschedule,
+        schema=vol.Schema({
+            vol.Required("entry_id"): cv.string,
+            vol.Required("date"): cv.date,
+            vol.Optional("source"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_CALENDAR_ACK,
         handle_calendar_ack,
         schema=vol.Schema({
@@ -451,9 +497,14 @@ async def _register_services(hass: HomeAssistant) -> None:
         }),
     )
 
-    _LOGGER.info("Services registered: %s, %s, %s, %s, %s, %s",
-                 SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY,
-                 SERVICE_FORCE_PROMPT, SERVICE_SET_ACCUM_BASELINE, SERVICE_CALENDAR_ACK)
+    _LOGGER.info(
+        "Services registered: %s",
+        ", ".join([
+            SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY,
+            SERVICE_FORCE_PROMPT, SERVICE_SET_ACCUM_BASELINE,
+            SERVICE_SNOOZE, SERVICE_RESCHEDULE, SERVICE_CALENDAR_ACK,
+        ]),
+    )
 
 
 def _get_runner_by_id(hass: HomeAssistant, entry_id: str) -> ReminderRunner | None:

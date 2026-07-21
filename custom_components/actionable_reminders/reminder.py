@@ -72,6 +72,7 @@ from .const import (
     CONF_UNTIL_DONE,
     CONF_LEAD_TIMES,
     CONF_NAG,
+    CONF_MANDATORY,
     CONF_ALLOW_CRITICAL,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
@@ -93,6 +94,8 @@ from .const import (
     STATE_AUTO_SKIPPED,
     STATE_RESET_DAY,
     STATE_ACCUM_BASELINE,
+    STATE_SNOOZE_UNTIL,
+    STATE_RESCHEDULE_DATE,
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
@@ -107,6 +110,7 @@ from .const import (
     DEFAULT_UNTIL_DONE,
     DEFAULT_LEAD_TIMES,
     DEFAULT_NAG,
+    DEFAULT_MANDATORY,
     DEFAULT_ALLOW_CRITICAL,
     DEFAULT_ENABLED,
     DEFAULT_ACK_MESSAGES,
@@ -191,6 +195,8 @@ class ReminderRunner:
             STATE_AUTO_SKIPPED: False,
             STATE_RESET_DAY: None,
             STATE_ACCUM_BASELINE: None,
+            STATE_SNOOZE_UNTIL: None,
+            STATE_RESCHEDULE_DATE: None,
         }
         self._store = Store(
             hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{self.uid}"
@@ -294,6 +300,7 @@ class ReminderRunner:
         self.optional = config.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)
         self.until_done = config.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)
         self.nag = config.get(CONF_NAG, DEFAULT_NAG)
+        self.mandatory = config.get(CONF_MANDATORY, DEFAULT_MANDATORY)
         self.allow_critical = config.get(CONF_ALLOW_CRITICAL, DEFAULT_ALLOW_CRITICAL)
         self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
         self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
@@ -506,7 +513,14 @@ class ReminderRunner:
         # the next day boundary via _check_daily_reset.
         if self._state[STATE_LAST_DONE] == today or self._state[STATE_AUTO_SKIPPED]:
             return False
-        
+
+        # Snoozed — suppressed until the snooze expires.
+        snooze_until = self._state.get(STATE_SNOOZE_UNTIL)
+        if snooze_until:
+            parsed = dt_util.parse_datetime(snooze_until)
+            if parsed and now < dt_util.as_local(parsed):
+                return False
+
         # Check basic schedule
         if not self._is_scheduled(now):
             return False
@@ -540,7 +554,18 @@ class ReminderRunner:
         # Must be past the scheduled time today
         if now.time() < schedule_time:
             return False
-        
+
+        # A one-off reschedule overrides the normal pattern for this occurrence:
+        # due on/after the target date, then cleared on completion.
+        resched = self._state.get(STATE_RESCHEDULE_DATE)
+        if resched:
+            try:
+                target = date.fromisoformat(resched)
+            except (TypeError, ValueError):
+                target = None
+            if target is not None:
+                return now.date() >= target
+
         # Check schedule type
         if self.schedule_type == "daily":
             return True
@@ -644,6 +669,13 @@ class ReminderRunner:
             return None  # no calendar date — driven by a template
         today = dt_util.now().date()
         done_today = self._state.get(STATE_LAST_DONE) == today.isoformat()
+        # A pending reschedule wins (until completed).
+        resched = self._state.get(STATE_RESCHEDULE_DATE)
+        if resched and not done_today:
+            try:
+                return date.fromisoformat(resched)
+            except (TypeError, ValueError):
+                pass
         if self.schedule_type == "once":
             if not self.once_date:
                 return None
@@ -908,8 +940,13 @@ class ReminderRunner:
             self._state[STATE_ESCALATED] = True
             _LOGGER.info("Reminder %s entering escalation mode", self.name)
         
-        # Check if we hit max escalations
-        if self._state[STATE_ESCALATED] and escalations >= self.max_escalations:
+        # Check if we hit max escalations. Mandatory reminders never give up —
+        # they keep prompting until actually completed.
+        if (
+            self._state[STATE_ESCALATED]
+            and escalations >= self.max_escalations
+            and not self.mandatory
+        ):
             _LOGGER.info("Reminder %s reached max escalations, auto-skipping", self.name)
             await self._auto_skip()
             return
@@ -1260,6 +1297,9 @@ class ReminderRunner:
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
         self._state[STATE_AUTO_SKIPPED] = False
+        # Completion clears any pending snooze or reschedule.
+        self._state[STATE_SNOOZE_UNTIL] = None
+        self._state[STATE_RESCHEDULE_DATE] = None
 
         # Accumulator re-anchor: capture the source's current value as the new
         # baseline so "accumulated since done" restarts from zero — this is what
@@ -1347,6 +1387,9 @@ class ReminderRunner:
         self, context: Context | None = None, source: str | None = None
     ) -> None:
         """Skip this reminder for today."""
+        if self.mandatory:
+            _LOGGER.info("Skip refused — %s is mandatory", self.name)
+            return
         today = dt_util.now().date().isoformat()
 
         _LOGGER.info("Skipping reminder for today: %s", self.name)
@@ -1382,6 +1425,57 @@ class ReminderRunner:
         self._state[STATE_ACCUM_BASELINE] = float(value)
         await self._save_state()
         _LOGGER.info("Accumulator baseline for %s set to %s", self.name, value)
+        async_dispatcher_send(
+            self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
+        )
+
+    async def async_snooze(
+        self,
+        duration: timedelta,
+        context: Context | None = None,
+        source: str | None = None,
+    ) -> None:
+        """Defer this reminder — suppressed until now + duration."""
+        if self.mandatory:
+            _LOGGER.info("Snooze refused — %s is mandatory", self.name)
+            return
+        until = dt_util.now() + duration
+        self._state[STATE_SNOOZE_UNTIL] = until.isoformat()
+        # Start fresh when it re-surfaces.
+        self._state[STATE_RETRIES_TODAY] = 0
+        self._state[STATE_ESCALATED] = False
+        self._state[STATE_ESCALATIONS_TODAY] = 0
+        await self._save_state()
+        await self._record_journal("snooze", context, source)
+        _LOGGER.info("Reminder %s snoozed until %s", self.name, until.isoformat())
+        async_dispatcher_send(
+            self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
+        )
+
+    async def async_reschedule_next(
+        self,
+        new_date: str,
+        context: Context | None = None,
+        source: str | None = None,
+    ) -> None:
+        """Override the next due date (scheduled reminders only)."""
+        if self.mandatory:
+            _LOGGER.info("Reschedule refused — %s is mandatory", self.name)
+            return
+        if self.schedule_type == "condition":
+            _LOGGER.warning(
+                "Reschedule ignored — %s is condition-based (no due date)", self.name
+            )
+            return
+        try:
+            date.fromisoformat(new_date)
+        except (TypeError, ValueError):
+            _LOGGER.warning("Reschedule ignored — invalid date %s", new_date)
+            return
+        self._state[STATE_RESCHEDULE_DATE] = new_date
+        await self._save_state()
+        await self._record_journal("reschedule", context, source)
+        _LOGGER.info("Reminder %s rescheduled to %s", self.name, new_date)
         async_dispatcher_send(
             self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
         )

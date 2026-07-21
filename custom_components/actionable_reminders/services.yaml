@@ -55,6 +55,56 @@ force_prompt:
       selector:
         text:
 
+snooze:
+  name: Snooze
+  description: Defer a reminder — it won't prompt again until the duration has elapsed. Refused for mandatory reminders.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the reminder to snooze.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+    duration:
+      name: Duration
+      description: How long to defer (e.g. 2 hours, or 0:30:00).
+      required: true
+      example: "02:00:00"
+      selector:
+        duration:
+    source:
+      name: Source
+      description: Optional label recorded in the audit journal.
+      required: false
+      selector:
+        text:
+
+reschedule_next:
+  name: Reschedule Next
+  description: Move a scheduled reminder's next due date to a specific day (cleared once completed). Ignored for condition reminders; refused for mandatory reminders.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the reminder to reschedule.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+    date:
+      name: Date
+      description: The new next-due date.
+      required: true
+      example: "2026-08-15"
+      selector:
+        date:
+    source:
+      name: Source
+      description: Optional label recorded in the audit journal.
+      required: false
+      selector:
+        text:
+
 set_accumulator_baseline:
   name: Set Accumulator Baseline
   description: Set an accumulator reminder's baseline directly. "Accumulated since done" = current source value minus this baseline. Use to correct the counter without a full completion (e.g. seeding a migrated reminder, or after a manual filter change).

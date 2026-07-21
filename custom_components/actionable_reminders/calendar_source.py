@@ -49,6 +49,7 @@ class CalendarSource:
         }
         self._unsub = None
         self._unsub_start = None
+        self._summaries: dict[str, str] = {}  # key -> event summary (for the journal)
 
     async def async_start(self) -> None:
         """Load persisted state and begin polling."""
@@ -84,11 +85,19 @@ class CalendarSource:
         """Stable, per-event notification tag (so events don't overwrite each other)."""
         return "cal_" + hashlib.md5(key.encode()).hexdigest()[:12]
 
-    def ack(self, event_key: str) -> None:
+    async def ack(self, event_key: str) -> None:
         """Mark an event acknowledged (from the calendar_ack service)."""
         self._state["acked"][event_key] = dt_util.now().date().isoformat()
-        self.hass.async_create_task(self._store.async_save(self._state))
+        await self._store.async_save(self._state)
         _LOGGER.info("Calendar reminder acked: %s", event_key)
+        journal = self.hass.data.get(DOMAIN, {}).get("hub", {}).get("journal")
+        if journal:
+            await journal.record(
+                uid=event_key,
+                name=self._summaries.get(event_key, event_key),
+                action="done",
+                source="calendar",
+            )
 
     # ────────────────────────────────────────────────────────────────────────
 
@@ -118,6 +127,7 @@ class CalendarSource:
                 continue  # treated as already handled
             key = f"{ev.get('uid') or summary}|{start}"
             current.add(key)
+            self._summaries[key] = summary
 
             if key in self._state["acked"]:
                 continue

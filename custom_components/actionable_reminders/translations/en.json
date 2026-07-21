@@ -76,14 +76,16 @@
             "allow_critical": "Allow critical (bypass Do Not Disturb)",
             "lead_times_text": "Lead-time heads-ups (days before)",
             "optional": "Optional",
-            "until_done": "Keep prompting until done"
+            "until_done": "Keep prompting until done",
+            "mandatory": "Mandatory"
           },
           "data_description": {
             "nag": "On: keep prompting and escalating until you acknowledge. Off: a single announcement.",
             "allow_critical": "Off by default. Only turn on if this reminder should be able to override Do Not Disturb when it escalates.",
             "lead_times_text": "Comma-separated days, e.g. \"30, 7, 1\". Leave empty for none.",
             "optional": "Optional reminders can be skipped without consequence.",
-            "until_done": "Carry over to following days until it's marked done."
+            "until_done": "Carry over to following days until it's marked done.",
+            "mandatory": "Mandatory reminders cannot be skipped, snoozed, or rescheduled, and never auto-give-up — they keep prompting until marked done."
           }
         },
         "menu": {

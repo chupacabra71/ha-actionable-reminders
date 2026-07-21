@@ -134,6 +134,7 @@ CONF_UNTIL_DONE = "until_done"                                   # Keep promptin
 CONF_LEAD_TIMES = "lead_times"                                   # Pre-notification offsets (days before due)
 CONF_ALLOW_CRITICAL = "allow_critical"  # Opt-in: escalate to DND-bypassing CRITICAL
 CONF_NAG = "nag"                                               # Post-due nag-until-done (False = single announce)
+CONF_MANDATORY = "mandatory"                                    # Cannot be skipped/snoozed/rescheduled; never auto-skips
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -149,6 +150,8 @@ STATE_ESCALATIONS_TODAY = "escalations_today"                    # Number of esc
 STATE_AUTO_SKIPPED = "auto_skipped"                              # Auto-skipped for today
 STATE_RESET_DAY = "reset_day"                                    # Date (YYYY-MM-DD) daily counters last reset
 STATE_ACCUM_BASELINE = "accumulator_baseline"                    # Source value captured at last completion (accumulator mode)
+STATE_SNOOZE_UNTIL = "snooze_until"                              # ISO datetime; not due before this (snooze)
+STATE_RESCHEDULE_DATE = "reschedule_date"                        # ISO date; overrides the next occurrence (reschedule_next)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -166,6 +169,7 @@ DEFAULT_MASTER_ENABLED = True                                    # Master switch
 DEFAULT_LEAD_TIMES = []                                          # No pre-notifications by default
 DEFAULT_ALLOW_CRITICAL = False  # Never bypass DND unless explicitly opted in
 DEFAULT_NAG = True                                             # Nag until done by default
+DEFAULT_MANDATORY = False                                        # Reminders are skippable unless marked mandatory
 DEFAULT_QUIET_START = "22:00"                                    # 10 PM
 DEFAULT_QUIET_END = "08:00"                                      # 8 AM
 
@@ -223,3 +227,5 @@ SERVICE_DISMISS = "dismiss"
 SERVICE_SKIP_TODAY = "skip_today"
 SERVICE_FORCE_PROMPT = "force_prompt"
 SERVICE_SET_ACCUM_BASELINE = "set_accumulator_baseline"          # Set an accumulator reminder's baseline (data: entry_id, baseline)
+SERVICE_SNOOZE = "snooze"                                        # Defer a reminder (data: entry_id, duration)
+SERVICE_RESCHEDULE = "reschedule_next"                           # Move the next due date (data: entry_id, date)

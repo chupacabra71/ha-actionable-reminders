@@ -31,6 +31,8 @@ from .const import (
     STATE_ESCALATED,
     STATE_ESCALATIONS_TODAY,
     STATE_AUTO_SKIPPED,
+    STATE_SNOOZE_UNTIL,
+    STATE_RESCHEDULE_DATE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -140,6 +142,9 @@ class ReminderSwitch(SwitchEntity):
             "escalated": state.get(STATE_ESCALATED, False),
             "escalations_today": state.get(STATE_ESCALATIONS_TODAY, 0),
             "auto_skipped": state.get(STATE_AUTO_SKIPPED, False),
+            "mandatory": self._runner.mandatory,
+            "snoozed_until": state.get(STATE_SNOOZE_UNTIL),
+            "reschedule_date": state.get(STATE_RESCHEDULE_DATE),
             "optional": self._runner.optional,
             "actionable": self._runner.actionable,
             "retry_interval": self._runner.retry_interval,
