@@ -15,14 +15,16 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_track_time_change, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SIGNAL_JOURNAL_UPDATED
+from .const import DOMAIN, SIGNAL_JOURNAL_UPDATED, SIGNAL_REMINDERS_UPDATED
 
 _LOGGER = logging.getLogger(__name__)
 
 RECENT_LIMIT = 25
+# Statuses that count as "needs attention" for the next-up surface.
+ACTIONABLE_STATUSES = ("triggered", "overdue", "due_soon")
 
 
 async def async_setup_entry(
@@ -34,8 +36,8 @@ async def async_setup_entry(
     if DOMAIN not in hass.data or "hub" not in hass.data[DOMAIN]:
         _LOGGER.error("Hub not found when setting up activity sensor")
         return
-    async_add_entities([ReminderActivitySensor(hass)])
-    _LOGGER.info("Reminders activity sensor created")
+    async_add_entities([ReminderActivitySensor(hass), ReminderNextUpSensor(hass)])
+    _LOGGER.info("Reminders activity + next-up sensors created")
 
 
 class ReminderActivitySensor(SensorEntity):
@@ -134,4 +136,85 @@ class ReminderActivitySensor(SensorEntity):
 
     @callback
     def _handle_midnight(self, _now: datetime) -> None:
+        self.async_write_ha_state()
+
+
+class ReminderNextUpSensor(SensorEntity):
+    """The single highest-urgency reminder needing attention (§16.2 surface).
+
+    State = that reminder's name (or "All clear"); attributes carry its
+    entry_id (for one-tap actions) and the full urgency-ranked pending list.
+    """
+
+    _attr_has_entity_name = False
+    _attr_icon = "mdi:alert-decagram"
+    _attr_should_poll = False
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._attr_name = "Reminders Next Up"
+        self._attr_unique_id = f"{DOMAIN}_next_up"
+
+    @property
+    def device_info(self) -> None:
+        """Hub-level entity with no device."""
+        return None
+
+    def _pending(self) -> list[dict[str, Any]]:
+        """Actionable reminders, most-urgent first."""
+        hub = self.hass.data.get(DOMAIN, {}).get("hub")
+        runners = hub.get("reminders", {}).values() if hub else []
+        out = []
+        for r in runners:
+            try:
+                if r.is_snoozed or r.status not in ACTIONABLE_STATUSES:
+                    continue
+                out.append({
+                    "name": r.name,
+                    "entry_id": r.entry_id,
+                    "status": r.status,
+                    "urgency": round(r.urgency, 3),
+                    "summary": r.summary,
+                })
+            except Exception:  # noqa: BLE001 - never let one reminder break the surface
+                continue
+        out.sort(key=lambda e: e["urgency"], reverse=True)
+        return out
+
+    @property
+    def native_value(self) -> str:
+        pending = self._pending()
+        return pending[0]["name"] if pending else "All clear"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        pending = self._pending()
+        top = pending[0] if pending else {}
+        return {
+            "entry_id": top.get("entry_id"),
+            "status": top.get("status"),
+            "urgency": top.get("urgency"),
+            "summary": top.get("summary"),
+            "count": len(pending),
+            "pending": pending,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Recompute on reminder changes and on a periodic tick (time-driven urgency)."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_REMINDERS_UPDATED, self._handle_update
+            )
+        )
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._handle_tick, timedelta(minutes=5))
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_tick(self, _now: datetime) -> None:
         self.async_write_ha_state()

@@ -692,6 +692,87 @@ class ReminderRunner:
                 return d
         return None
 
+    @property
+    def urgency(self) -> float:
+        """A continuous rank: 0=fresh, ~1.0=just due, >1.0=overdue; -1 disabled.
+
+        - accumulator: accumulated / limit.
+        - template/threshold condition: 1.0 when due, else 0.0.
+        - date-based: ramps to 1.0 across the lead window, then overdue past due.
+        """
+        if not self._enabled:
+            return -1.0
+        if self._state.get(STATE_LAST_DONE) == dt_util.now().date().isoformat():
+            return 0.0
+        if self.schedule_type == "condition":
+            if self.condition_mode == "accumulator":
+                cur = self._read_numeric(self.accum_source)
+                limit = self._read_numeric_config(self.accum_limit)
+                if cur is None or not limit:
+                    return 0.0
+                base = self._state.get(STATE_ACCUM_BASELINE)
+                acc = cur - base if (self.accum_reset_on_done and base is not None) else cur
+                return max(acc / limit, 0.0)
+            return 1.0 if self._eval_condition() else 0.0
+        nd = self.next_due_date
+        if nd is None:
+            return 0.0
+        days_until = (nd - dt_util.now().date()).days
+        if days_until <= 0:
+            return 1.0 + min(-days_until, 60) * 0.1  # overdue ramp, capped
+        lead = max(max(self.lead_times), 1) if self.lead_times else 1
+        return max(0.0, 1.0 - days_until / lead)
+
+    @property
+    def status(self) -> str:
+        """A 4-state ladder for display: disabled | ok | due_soon | overdue | triggered."""
+        if not self._enabled:
+            return "disabled"
+        if self._state.get(STATE_LAST_DONE) == dt_util.now().date().isoformat():
+            return "ok"
+        u = self.urgency
+        if u >= 1.0:
+            return "triggered" if self._state.get(STATE_ESCALATED) else "overdue"
+        if u >= 0.8:
+            return "due_soon"
+        return "ok"
+
+    @property
+    def is_snoozed(self) -> bool:
+        """Whether the reminder is currently snoozed."""
+        su = self._state.get(STATE_SNOOZE_UNTIL)
+        if not su:
+            return False
+        parsed = dt_util.parse_datetime(su)
+        return bool(parsed and dt_util.now() < dt_util.as_local(parsed))
+
+    @property
+    def summary(self) -> str:
+        """A short human status line for the sensor / dashboard."""
+        if not self._enabled:
+            return "Disabled"
+        if self.schedule_type == "condition" and self.condition_mode == "accumulator":
+            cs = self.condition_status()
+            pct = cs.get("accumulator_progress_pct")
+            rem = cs.get("accumulator_remaining")
+            if pct is not None:
+                return f"{pct:.0f}% used" + (f", {rem} to go" if rem is not None else "")
+        st = self.status
+        nd = self.next_due_date
+        if st in ("triggered", "overdue"):
+            if nd:
+                d = (dt_util.now().date() - nd).days
+                return f"Overdue {d}d" if d > 0 else "Due today"
+            return "Due now"
+        if nd:
+            d = (nd - dt_util.now().date()).days
+            if d <= 0:
+                return "Due today"
+            if d == 1:
+                return "Due tomorrow"
+            return f"Due in {d}d"
+        return "OK"
+
     def _eval_due_template(self) -> bool:
         """Render the condition source's due_template to a bool.
 
