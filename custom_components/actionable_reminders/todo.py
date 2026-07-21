@@ -135,7 +135,7 @@ class RemindersTodoList(TodoListEntity):
                     data={**runner._subentry.data, CONF_ONCE_DATE: new_date},
                 )
         if item.status == TodoItemStatus.COMPLETED:
-            await runner.async_mark_done()
+            await runner.async_mark_done(source="todo")
         self.async_write_ha_state()
 
     async def async_create_todo_item(self, item: TodoItem) -> None:

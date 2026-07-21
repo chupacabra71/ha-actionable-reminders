@@ -1234,7 +1234,20 @@ class ReminderRunner:
     # Public Service Methods
     # ────────────────────────────────────────────────────────────────────────────
 
-    async def async_mark_done(self) -> None:
+    async def _record_journal(
+        self, action: str, context: Context | None = None, source: str | None = None
+    ) -> None:
+        """Append a completion-path action to the hub audit journal."""
+        journal = self.hass.data.get(DOMAIN, {}).get("hub", {}).get("journal")
+        if journal:
+            await journal.record(
+                uid=self.uid, name=self.name, action=action,
+                context=context, source=source,
+            )
+
+    async def async_mark_done(
+        self, context: Context | None = None, source: str | None = None
+    ) -> None:
         """Mark reminder as done for today."""
         today = dt_util.now().date().isoformat()
         
@@ -1287,6 +1300,7 @@ class ReminderRunner:
         self.hass.bus.async_fire(
             EVENT_COMPLETED, {"entry_id": self.entry_id, "name": self.name}
         )
+        await self._record_journal("done", context, source)
 
         # Refresh the aggregate to-do list; one-time reminders self-remove.
         async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
@@ -1299,7 +1313,9 @@ class ReminderRunner:
             SIGNAL_REMINDER_UPDATE.format(self.entry_id),
         )
 
-    async def async_dismiss(self) -> None:
+    async def async_dismiss(
+        self, context: Context | None = None, source: str | None = None
+    ) -> None:
         """Dismiss reminder (not ready yet)."""
         _LOGGER.info("Reminder dismissed: %s", self.name)
         
@@ -1315,7 +1331,8 @@ class ReminderRunner:
             self._state[STATE_RETRIES_TODAY] += 1
         
         await self._save_state()
-        
+        await self._record_journal("dismiss", context, source)
+
         # Send dismissal acknowledgment
         dismiss_msg = random.choice(self.dismiss_messages)
         await self._send_ack(dismiss_msg)
@@ -1326,20 +1343,23 @@ class ReminderRunner:
             SIGNAL_REMINDER_UPDATE.format(self.entry_id),
         )
 
-    async def async_skip_today(self) -> None:
+    async def async_skip_today(
+        self, context: Context | None = None, source: str | None = None
+    ) -> None:
         """Skip this reminder for today."""
         today = dt_util.now().date().isoformat()
-        
+
         _LOGGER.info("Skipping reminder for today: %s", self.name)
-        
+
         self._state[STATE_LAST_DONE] = today
         self._state[STATE_RETRIES_TODAY] = 0
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
         self._state[STATE_AUTO_SKIPPED] = False
-        
+
         await self._save_state()
-        
+        await self._record_journal("skip", context, source)
+
         # Notify switch entity
         async_dispatcher_send(
             self.hass,
@@ -1377,9 +1397,10 @@ class ReminderRunner:
         self._state[STATE_RETRIES_TODAY] = 0
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
-        
+
         await self._save_state()
-        
+        await self._record_journal("auto_skip", source="auto")
+
         # Notify switch entity
         async_dispatcher_send(
             self.hass,

@@ -11,6 +11,13 @@ mark_done:
       example: "abc123def456"
       selector:
         text:
+    source:
+      name: Source
+      description: Optional label recorded in the audit journal for how this was completed (e.g. mobile, voice, dashboard).
+      required: false
+      example: "mobile"
+      selector:
+        text:
 
 dismiss:
   name: Dismiss

@@ -34,6 +34,14 @@ SIGNAL_REMINDERS_UPDATED = f"{DOMAIN}_reminders_updated"
 # external automations react to completion (e.g. reset an HVAC-filter counter).
 EVENT_COMPLETED = f"{DOMAIN}_completed"
 
+# Fired on the bus for every audit-journal entry (done/skip/dismiss/auto_skip):
+# {ts, uid, name, action, actor, source}. Also drives the activity sensor.
+EVENT_JOURNAL = f"{DOMAIN}_journal"
+SIGNAL_JOURNAL_UPDATED = f"{DOMAIN}_journal_updated"
+JOURNAL_STORAGE_VERSION = 1
+JOURNAL_STORAGE_KEY = f"{DOMAIN}_journal"
+JOURNAL_MAX_ENTRIES = 200                                        # Ring buffer size
+
 # Calendar source
 CONF_REMINDERS_CALENDAR = "reminders_calendar"                   # Calendar entity whose events become reminders
 SERVICE_CALENDAR_ACK = "calendar_ack"                            # Ack a calendar-sourced reminder (data: event_key)

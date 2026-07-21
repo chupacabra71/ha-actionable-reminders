@@ -42,13 +42,14 @@ from .const import (
 )
 from .reminder import ReminderRunner
 from .calendar_source import CalendarSource
+from .journal import ReminderJournal
 
 _LOGGER = logging.getLogger(__name__)
 
 # Platforms set up on a reminder entry (per-reminder switch) and on the hub
 # entry (the aggregate to-do list), respectively.
 PLATFORMS = [Platform.SWITCH]
-HUB_PLATFORMS = [Platform.TODO, Platform.SWITCH]
+HUB_PLATFORMS = [Platform.TODO, Platform.SWITCH, Platform.SENSOR]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -113,7 +114,12 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Master kill switch — when False, no reminder or calendar prompt fires.
         "master_enabled": entry.data.get(CONF_MASTER_ENABLED, DEFAULT_MASTER_ENABLED),
     }
-    
+
+    # Audit journal — a persisted log of every completion-path action.
+    journal = ReminderJournal(hass)
+    await journal.async_load()
+    hass.data[DOMAIN]["hub"]["journal"] = journal
+
     # Register integration services
     await _register_services(hass)
 
@@ -338,25 +344,25 @@ async def _register_services(hass: HomeAssistant) -> None:
         entry_id = call.data.get("entry_id")
         runner = _get_runner_by_id(hass, entry_id)
         if runner:
-            await runner.async_mark_done()
+            await runner.async_mark_done(context=call.context, source=call.data.get("source"))
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
-    
+
     async def handle_dismiss(call: ServiceCall) -> None:
         """Handle dismiss service call."""
         entry_id = call.data.get("entry_id")
         runner = _get_runner_by_id(hass, entry_id)
         if runner:
-            await runner.async_dismiss()
+            await runner.async_dismiss(context=call.context, source=call.data.get("source"))
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
-    
+
     async def handle_skip_today(call: ServiceCall) -> None:
         """Handle skip_today service call."""
         entry_id = call.data.get("entry_id")
         runner = _get_runner_by_id(hass, entry_id)
         if runner:
-            await runner.async_skip_today()
+            await runner.async_skip_today(context=call.context, source=call.data.get("source"))
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
     
@@ -393,24 +399,27 @@ async def _register_services(hass: HomeAssistant) -> None:
         handle_mark_done,
         schema=vol.Schema({
             vol.Required("entry_id"): cv.string,
+            vol.Optional("source"): cv.string,
         }),
     )
-    
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_DISMISS,
         handle_dismiss,
         schema=vol.Schema({
             vol.Required("entry_id"): cv.string,
+            vol.Optional("source"): cv.string,
         }),
     )
-    
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SKIP_TODAY,
         handle_skip_today,
         schema=vol.Schema({
             vol.Required("entry_id"): cv.string,
+            vol.Optional("source"): cv.string,
         }),
     )
     
