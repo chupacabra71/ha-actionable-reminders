@@ -18,6 +18,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
@@ -146,11 +147,45 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # one per reminder subentry).
     await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
 
+    _prune_orphan_devices(hass, entry)
+
     _LOGGER.info(
         "Actionable Reminders hub setup complete (%d reminders)",
         len(hass.data[DOMAIN]["hub"]["reminders"]),
     )
     return True
+
+
+def _prune_orphan_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove hub devices that no longer own any entity.
+
+    Reminders dropped their per-reminder device in v0.9.2; this clears the
+    devices the migration left behind (and self-heals any future
+    device→no-device change). The hub's own device keeps the master switch and
+    the todo list, so it survives.
+    """
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        if not er.async_entries_for_device(
+            ent_reg, device.id, include_disabled_entities=True
+        ):
+            _LOGGER.info("Removing orphaned reminder device: %s", device.name)
+            dev_reg.async_remove_device(device.id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry
+) -> bool:
+    """Allow deleting a reminder device from the UI when it owns no entities.
+
+    Guards the hub device (master switch + todo) from removal while it still
+    has entities.
+    """
+    ent_reg = er.async_get(hass)
+    return not er.async_entries_for_device(
+        ent_reg, device_entry.id, include_disabled_entities=True
+    )
 
 
 async def _migrate_legacy_reminders(hass: HomeAssistant, hub_entry: ConfigEntry) -> None:
