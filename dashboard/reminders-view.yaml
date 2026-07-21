@@ -4,50 +4,102 @@
 # Add as a new view on an existing dashboard (Edit dashboard → + Add view →
 # ⋮ Edit in YAML → paste this).
 #
-# Built-in cards throughout except the status list, where auto-entities +
-# template-entity-row are used because there is no native way to render a
-# templated per-reminder secondary line.
-#   Requires: lovelace-auto-entities, lovelace-template-entity-row
+# Layout: a full-width hero strip of live status chips over two columns —
+# "Due now" (the to-do list) on the left, "All reminders" (status list) on
+# the right.
 #
-# Entity IDs are stable across the subentry migration, so this works both
-# before and after it. `next_due_date` is exposed from v0.9.0+.
+# Reminder switches are identified in templates by their `schedule_type`
+# attribute; the master switch has none, so it is naturally excluded from the
+# counts. `next_due_date` is exposed from v0.9.0+.
+#
+# Custom cards used (all via HACS):
+#   mushroom (chips), auto-entities, template-entity-row, card-mod.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
 icon: mdi:bell-ring
 type: sections
-max_columns: 3
+max_columns: 2
 sections:
-  # ── Control ────────────────────────────────────────────────────────────────
+  # ── Hero: title + live status chips ────────────────────────────────────────
   - type: grid
+    column_span: 2
     cards:
       - type: heading
-        heading: Control
+        heading: Reminders
         heading_style: title
-        icon: mdi:tune
-
-      - type: tile
-        entity: switch.actionable_reminders_master
-        name: All reminders
         icon: mdi:bell-ring
-        features:
-          - type: toggle
-        tap_action:
-          action: more-info
 
-      - type: button
-        name: Add reminder
-        icon: mdi:plus-circle-outline
-        tap_action:
-          action: navigate
-          navigation_path: /config/integrations/integration/actionable_reminders
+      - type: custom:mushroom-chips-card
+        alignment: start
+        chips:
+          # Master enable — tap to toggle the whole system.
+          - type: template
+            entity: switch.actionable_reminders_master
+            icon: >-
+              {{ 'mdi:bell-ring' if is_state('switch.actionable_reminders_master','on')
+                 else 'mdi:bell-off' }}
+            icon_color: >-
+              {{ 'green' if is_state('switch.actionable_reminders_master','on')
+                 else 'disabled' }}
+            content: >-
+              {{ 'All on' if is_state('switch.actionable_reminders_master','on')
+                 else 'All off' }}
+            tap_action:
+              action: toggle
+
+          # Due now — count comes straight off the to-do list.
+          - type: template
+            icon: mdi:checkbox-marked-circle-outline
+            icon_color: "{{ 'orange' if states('todo.actionable_reminders_reminders')|int(0) > 0 else 'grey' }}"
+            content: "{{ states('todo.actionable_reminders_reminders')|int(0) }} due"
+
+          # Escalating — red only when something is actually escalating.
+          - type: template
+            icon: mdi:bell-alert
+            icon_color: >-
+              {% set n = states.switch | selectattr('attributes.schedule_type','defined')
+                 | selectattr('attributes.escalated','eq',true) | list | count %}
+              {{ 'red' if n > 0 else 'grey' }}
+            content: >-
+              {% set n = states.switch | selectattr('attributes.schedule_type','defined')
+                 | selectattr('attributes.escalated','eq',true) | list | count %}
+              {{ n }} escalating
+
+          # Enabled / total.
+          - type: template
+            icon: mdi:toggle-switch-outline
+            icon_color: blue
+            content: >-
+              {% set r = states.switch | selectattr('attributes.schedule_type','defined') | list %}
+              {{ r | selectattr('state','eq','on') | list | count }}/{{ r | count }} on
+
+          # Next up — soonest scheduled reminder.
+          - type: template
+            icon: mdi:calendar-arrow-right
+            icon_color: teal
+            content: >-
+              {% set r = states.switch | selectattr('attributes.schedule_type','defined')
+                 | selectattr('attributes.next_due_date','ne',None)
+                 | list | sort(attribute='attributes.next_due_date') %}
+              {% if r %}{{ r[0].name }} · {{ as_timestamp(r[0].attributes.next_due_date ~ ' 00:00:00')
+                 | timestamp_custom('%b %-d') }}{% else %}Nothing scheduled{% endif %}
+
+          # Add a new reminder.
+          - type: template
+            icon: mdi:plus-circle
+            icon_color: green
+            content: Add
+            tap_action:
+              action: navigate
+              navigation_path: /config/integrations/integration/actionable_reminders
 
   # ── What's due (check off to complete) ─────────────────────────────────────
   - type: grid
     cards:
       - type: heading
         heading: Due now
-        heading_style: title
+        heading_style: subtitle
         icon: mdi:checkbox-marked-circle-outline
 
       # The to-do list already encodes the due logic: enabled + nagging
@@ -61,7 +113,7 @@ sections:
     cards:
       - type: heading
         heading: All reminders
-        heading_style: title
+        heading_style: subtitle
         icon: mdi:format-list-bulleted
 
       - type: custom:auto-entities
@@ -83,15 +135,35 @@ sections:
                   action: more-info
                 icon: >-
                   {% if state_attr(config.entity,'escalated') %}mdi:bell-alert{% elif
-                  is_state(config.entity,'off') %}mdi:bell-off{% else %}mdi:bell{% endif %}
+                  is_state(config.entity,'off') %}mdi:bell-off{% else %}mdi:bell-ring{% endif %}
                 secondary: >-
-                  {% if is_state(config.entity,'off') %}Disabled{% elif
-                  state_attr(config.entity,'escalated') %}Escalating{% elif
-                  state_attr(config.entity,'auto_skipped') %}Skipped today{% elif
-                  state_attr(config.entity,'next_due_date') %}Due {{
-                  state_attr(config.entity,'next_due_date') }}{% elif
-                  state_attr(config.entity,'last_done_date') %}Last done {{
-                  state_attr(config.entity,'last_done_date') }}{% else %}Never done{% endif %}
+                  {% set nd = state_attr(config.entity,'next_due_date') %}
+                  {% set ct = state_attr(config.entity,'schedule_type') == 'condition' %}
+                  {% if is_state(config.entity,'off') %}Disabled
+                  {% elif state_attr(config.entity,'escalated') %}Escalating now
+                  {% elif state_attr(config.entity,'auto_skipped') %}Skipped today
+                  {% elif nd %}
+                    {%- set days = ((as_timestamp(nd ~ ' 00:00:00') - as_timestamp(today_at('00:00'))) / 86400) | round(0,'floor') | int -%}
+                    {%- if days < 0 %}Overdue by {{ -days }}d
+                    {%- elif days == 0 %}Due today
+                    {%- elif days == 1 %}Due tomorrow
+                    {%- else %}Due in {{ days }}d · {{ as_timestamp(nd ~ ' 00:00:00') | timestamp_custom('%b %-d') }}
+                    {%- endif %}
+                  {% elif ct %}Condition-based{% if state_attr(config.entity,'last_done_date') %} · last done {{ state_attr(config.entity,'last_done_date') }}{% endif %}
+                  {% elif state_attr(config.entity,'last_done_date') %}Last done {{ state_attr(config.entity,'last_done_date') }}
+                  {% else %}Never done{% endif %}
+                card_mod:
+                  style: |
+                    :host {
+                      --paper-item-icon-color:
+                        {% if is_state(config.entity,'off') %}var(--disabled-text-color)
+                        {% elif state_attr(config.entity,'escalated') %}var(--error-color)
+                        {% elif state_attr(config.entity,'next_due_date') and
+                                ((as_timestamp(state_attr(config.entity,'next_due_date') ~ ' 00:00:00')
+                                  - as_timestamp(today_at('00:00'))) / 86400) | round(0,'floor') | int <= 0
+                          %}var(--warning-color)
+                        {% else %}var(--success-color){% endif %};
+                    }
           exclude:
-            # The master switch lives in the Control section above.
+            # The master switch lives in the hero chips above.
             - entity_id: switch.actionable_reminders_master
