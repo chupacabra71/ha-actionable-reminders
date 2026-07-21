@@ -214,3 +214,4 @@ SERVICE_MARK_DONE = "mark_done"
 SERVICE_DISMISS = "dismiss"
 SERVICE_SKIP_TODAY = "skip_today"
 SERVICE_FORCE_PROMPT = "force_prompt"
+SERVICE_SET_ACCUM_BASELINE = "set_accumulator_baseline"          # Set an accumulator reminder's baseline (data: entry_id, baseline)

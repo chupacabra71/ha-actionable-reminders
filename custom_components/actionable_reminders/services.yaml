@@ -47,3 +47,24 @@ force_prompt:
       example: "abc123def456"
       selector:
         text:
+
+set_accumulator_baseline:
+  name: Set Accumulator Baseline
+  description: Set an accumulator reminder's baseline directly. "Accumulated since done" = current source value minus this baseline. Use to correct the counter without a full completion (e.g. seeding a migrated reminder, or after a manual filter change).
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the accumulator reminder. Found in the switch entity's attributes.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+    baseline:
+      name: Baseline
+      description: The source value to treat as "zero accumulated". Set to 0 to count the source's full current value.
+      required: true
+      example: 0
+      selector:
+        number:
+          mode: box
+          step: any

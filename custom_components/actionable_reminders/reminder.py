@@ -1346,6 +1346,26 @@ class ReminderRunner:
             SIGNAL_REMINDER_UPDATE.format(self.entry_id),
         )
 
+    async def async_set_accumulator_baseline(self, value: float) -> None:
+        """Set the accumulator baseline directly (accumulator mode).
+
+        Used to correct the 'accumulated since done' anchor without a full
+        completion — e.g. seeding a migrated reminder, or fixing the counter
+        after a manual filter change. A no-op for non-accumulator reminders.
+        """
+        if not (self.schedule_type == "condition" and self.condition_mode == "accumulator"):
+            _LOGGER.warning(
+                "set_accumulator_baseline ignored — %s is not an accumulator reminder",
+                self.name,
+            )
+            return
+        self._state[STATE_ACCUM_BASELINE] = float(value)
+        await self._save_state()
+        _LOGGER.info("Accumulator baseline for %s set to %s", self.name, value)
+        async_dispatcher_send(
+            self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
+        )
+
     async def _auto_skip(self) -> None:
         """Auto-skip after max escalations."""
         today = dt_util.now().date().isoformat()
