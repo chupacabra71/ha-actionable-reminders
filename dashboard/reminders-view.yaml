@@ -96,6 +96,15 @@ header:
               action: navigate
               navigation_path: /config/integrations/integration/actionable_reminders
 
+          # Manage / edit existing reminders (gear on each row = edit wizard).
+          - type: template
+            icon: mdi:cog
+            icon_color: grey
+            content: Manage
+            tap_action:
+              action: navigate
+              navigation_path: /config/integrations/integration/actionable_reminders
+
 sections:
   # ── What's due (check off to complete) ─────────────────────────────────────
   - type: grid
