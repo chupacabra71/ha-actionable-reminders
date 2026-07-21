@@ -47,7 +47,10 @@
             "once_date": "Date",
             "schedule_monthly_type": "Monthly pattern",
             "schedule_monthly_day": "Day of the month",
-            "condition_mode": "How 'due' is decided"
+            "condition_mode": "How 'due' is decided",
+            "interval_every": "Every",
+            "interval_unit": "Unit",
+            "interval_anchor": "Starting from"
           },
           "data_description": {
             "schedule_time": "Nothing fires before this time (and never during quiet hours).",
@@ -57,7 +60,10 @@
             "once_date": "The day this one-time reminder is due.",
             "schedule_monthly_type": "A specific day of the month, or a week pattern like \"first Wednesday\".",
             "schedule_monthly_day": "1-31. Months that are shorter fire on their last day.",
-            "condition_mode": "Template = a Jinja condition; Accumulator = device data since last done (runtime, cycles); Threshold = a live sensor crossing a value."
+            "condition_mode": "Template = a Jinja condition; Accumulator = device data since last done (runtime, cycles); Threshold = a live sensor crossing a value.",
+            "interval_every": "How many units between occurrences (e.g. 6 for every 6 months, 2 for every other month).",
+            "interval_unit": "Days, weeks, months, or years.",
+            "interval_anchor": "The first occurrence; all future dates step from here."
           }
         },
         "monthly": {
@@ -66,6 +72,9 @@
           "data": {
             "schedule_monthly_week": "Week of the month",
             "schedule_monthly_weekday": "Weekday"
+          },
+          "data_description": {
+            "schedule_monthly_week": "Pick one or more (e.g. first and third)."
           }
         },
         "behavior": {

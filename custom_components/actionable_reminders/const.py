@@ -104,6 +104,10 @@ CONF_SCHEDULE_MONTHLY_TYPE = "schedule_monthly_type"             # "day" or "wee
 CONF_SCHEDULE_MONTHLY_DAY = "schedule_monthly_day"               # Day of month (1-31)
 CONF_SCHEDULE_MONTHLY_WEEK = "schedule_monthly_week"             # "first", "second", "third", "fourth", "last"
 CONF_SCHEDULE_MONTHLY_WEEKDAY = "schedule_monthly_weekday"       # "mon", "tue", etc.
+# Interval schedule: "every N days/weeks/months/years" from an anchor date.
+CONF_INTERVAL_EVERY = "interval_every"                           # N (>= 1)
+CONF_INTERVAL_UNIT = "interval_unit"                             # "days" | "weeks" | "months" | "years"
+CONF_INTERVAL_ANCHOR = "interval_anchor"                         # First occurrence (YYYY-MM-DD)
 
 # Messages
 CONF_PROMPT_MESSAGES = "prompt_messages"                         # List of prompt messages

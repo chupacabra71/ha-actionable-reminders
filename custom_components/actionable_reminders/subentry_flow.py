@@ -44,6 +44,9 @@ from .const import (
     CONF_SCHEDULE_MONTHLY_DAY,
     CONF_SCHEDULE_MONTHLY_WEEK,
     CONF_SCHEDULE_MONTHLY_WEEKDAY,
+    CONF_INTERVAL_EVERY,
+    CONF_INTERVAL_UNIT,
+    CONF_INTERVAL_ANCHOR,
     CONF_PROMPT_MESSAGES,
     CONF_ACK_MESSAGES,
     CONF_DISMISS_MESSAGES,
@@ -145,6 +148,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                         {"label": "Weekly", "value": "weekly"},
                         {"label": "Monthly", "value": "monthly"},
                         {"label": "Yearly", "value": "yearly"},
+                        {"label": "Every N days / weeks / months / years", "value": "interval"},
                         {"label": "One-time", "value": "once"},
                         {"label": "Condition (template / accumulator / threshold)", "value": "condition"},
                     ],
@@ -209,6 +213,32 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                     )
                 ),
             })
+        elif stype == "interval":
+            schema = vol.Schema({
+                vol.Required(
+                    CONF_INTERVAL_EVERY, default=d.get(CONF_INTERVAL_EVERY, 1),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=999, mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Required(
+                    CONF_INTERVAL_UNIT, default=d.get(CONF_INTERVAL_UNIT, "months"),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Days", "value": "days"},
+                            {"label": "Weeks", "value": "weeks"},
+                            {"label": "Months", "value": "months"},
+                            {"label": "Years", "value": "years"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    CONF_INTERVAL_ANCHOR,
+                    description={"suggested_value": d.get(CONF_INTERVAL_ANCHOR)},
+                ): selector.DateSelector(),
+                **time_field,
+            })
         elif stype == "yearly":
             schema = vol.Schema({
                 vol.Required(
@@ -261,12 +291,16 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             return await self.async_step_behavior()
 
         d = self._data
+        _wk = d.get(CONF_SCHEDULE_MONTHLY_WEEK, ["first"])
+        if isinstance(_wk, str):
+            _wk = [_wk]
         schema = vol.Schema({
             vol.Required(
-                CONF_SCHEDULE_MONTHLY_WEEK, default=d.get(CONF_SCHEDULE_MONTHLY_WEEK, "first")
+                CONF_SCHEDULE_MONTHLY_WEEK, default=_wk
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[{"label": l, "value": k} for k, l in MONTHLY_WEEK_LABELS.items()],
+                    multiple=True,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
@@ -511,6 +545,10 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
 
         if stype == "weekly":
             config[CONF_SCHEDULE_DAYS] = d.get(CONF_SCHEDULE_DAYS, [])
+        elif stype == "interval":
+            config[CONF_INTERVAL_EVERY] = int(d.get(CONF_INTERVAL_EVERY, 1))
+            config[CONF_INTERVAL_UNIT] = d.get(CONF_INTERVAL_UNIT, "months")
+            config[CONF_INTERVAL_ANCHOR] = d.get(CONF_INTERVAL_ANCHOR)
         elif stype == "once":
             config[CONF_ONCE_DATE] = d.get(CONF_ONCE_DATE)
         elif stype == "yearly":

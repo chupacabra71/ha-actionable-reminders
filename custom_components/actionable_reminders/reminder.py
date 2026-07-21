@@ -53,6 +53,9 @@ from .const import (
     CONF_SCHEDULE_MONTHLY_DAY,
     CONF_SCHEDULE_MONTHLY_WEEK,
     CONF_SCHEDULE_MONTHLY_WEEKDAY,
+    CONF_INTERVAL_EVERY,
+    CONF_INTERVAL_UNIT,
+    CONF_INTERVAL_ANCHOR,
     CONF_PROMPT_MESSAGES,
     CONF_ACK_MESSAGES,
     CONF_DISMISS_MESSAGES,
@@ -238,6 +241,10 @@ class ReminderRunner:
         self.schedule_monthly_day = config.get(CONF_SCHEDULE_MONTHLY_DAY)
         self.schedule_monthly_week = config.get(CONF_SCHEDULE_MONTHLY_WEEK)
         self.schedule_monthly_weekday = config.get(CONF_SCHEDULE_MONTHLY_WEEKDAY)
+        # Interval schedule ("every N units" from an anchor date).
+        self.interval_every = config.get(CONF_INTERVAL_EVERY, 1)
+        self.interval_unit = config.get(CONF_INTERVAL_UNIT, "months")
+        self.interval_anchor = config.get(CONF_INTERVAL_ANCHOR)
         
         # Messages (lists)
         self.prompt_messages = config.get(CONF_PROMPT_MESSAGES, [])
@@ -569,7 +576,10 @@ class ReminderRunner:
         # Check schedule type
         if self.schedule_type == "daily":
             return True
-        
+
+        elif self.schedule_type == "interval":
+            return self._date_matches_interval(now.date())
+
         elif self.schedule_type == "weekly":
             if not self.schedule_days:
                 return True
@@ -607,6 +617,8 @@ class ReminderRunner:
         """Whether the given date matches this reminder's recurrence."""
         if self.schedule_type == "daily":
             return True
+        if self.schedule_type == "interval":
+            return self._date_matches_interval(d)
         if self.schedule_type == "weekly":
             if not self.schedule_days:
                 return True
@@ -629,6 +641,55 @@ class ReminderRunner:
             return self.once_date == d.isoformat()
         return False
 
+    def _date_matches_interval(self, d: date) -> bool:
+        """Whether a date is on the 'every N units' cadence from the anchor."""
+        if not self.interval_anchor:
+            return False
+        try:
+            anchor = date.fromisoformat(self.interval_anchor)
+        except (TypeError, ValueError):
+            return False
+        if d < anchor:
+            return False
+        n = max(int(self.interval_every or 1), 1)
+        unit = self.interval_unit or "months"
+        if unit == "days":
+            return (d - anchor).days % n == 0
+        if unit == "weeks":
+            return (d - anchor).days % (n * 7) == 0
+        if unit == "months":
+            months = (d.year - anchor.year) * 12 + (d.month - anchor.month)
+            if months < 0 or months % n != 0:
+                return False
+            last_day = calendar.monthrange(d.year, d.month)[1]
+            return d.day == min(anchor.day, last_day)
+        if unit == "years":
+            years = d.year - anchor.year
+            if years < 0 or years % n != 0:
+                return False
+            if (anchor.month, anchor.day) == (2, 29) and not calendar.isleap(d.year):
+                return (d.month, d.day) == (2, 28)
+            return (d.month, d.day) == (anchor.month, anchor.day)
+        return False
+
+    def _matches_week_pattern(self, d: date, week: str, target_weekday: int) -> bool:
+        """Whether d is the <week> <weekday> of its month (e.g. first Wednesday)."""
+        weeks_with_day = [
+            w for w in calendar.monthcalendar(d.year, d.month)
+            if w[target_weekday] != 0
+        ]
+        if not weeks_with_day:
+            return False
+        if week == "last":
+            return d.day == weeks_with_day[-1][target_weekday]
+        try:
+            idx = MONTHLY_WEEKS.index(week)
+        except (ValueError, TypeError):
+            return False
+        if idx >= len(weeks_with_day):
+            return False
+        return d.day == weeks_with_day[idx][target_weekday]
+
     def _date_matches_monthly(self, d: date) -> bool:
         """Whether a date matches the monthly schedule (day or week-pattern)."""
         if self.schedule_monthly_type == "day":
@@ -643,23 +704,14 @@ class ReminderRunner:
                 target_weekday = WEEKDAYS.index(self.schedule_monthly_weekday)
             except (ValueError, TypeError):
                 return False
-            weeks_with_day = [
-                w for w in calendar.monthcalendar(d.year, d.month)
-                if w[target_weekday] != 0
-            ]
-            if not weeks_with_day:
-                return False
-            if self.schedule_monthly_week == "last":
-                target_day = weeks_with_day[-1][target_weekday]
-            else:
-                try:
-                    idx = MONTHLY_WEEKS.index(self.schedule_monthly_week)
-                except (ValueError, TypeError):
-                    return False
-                if idx >= len(weeks_with_day):
-                    return False
-                target_day = weeks_with_day[idx][target_weekday]
-            return d.day == target_day
+            # schedule_monthly_week may be a single week or a list (e.g. 1st & 3rd).
+            weeks = self.schedule_monthly_week
+            if isinstance(weeks, str):
+                weeks = [weeks]
+            return any(
+                self._matches_week_pattern(d, wk, target_weekday)
+                for wk in (weeks or [])
+            )
         return False
 
     @property
@@ -683,8 +735,9 @@ class ReminderRunner:
                 return date.fromisoformat(self.once_date)
             except (TypeError, ValueError):
                 return None
-        # Recurring: scan forward for the next matching date.
-        for offset in range(0, 366):
+        # Recurring: scan forward for the next matching date (wide enough for
+        # multi-year intervals, e.g. "every 3 years").
+        for offset in range(0, 366 * 5):
             d = today + timedelta(days=offset)
             if self._date_matches_schedule(d):
                 if offset == 0 and done_today:
