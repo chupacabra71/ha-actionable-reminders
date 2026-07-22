@@ -1,18 +1,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # "Reminders" — a management view for the actionable_reminders integration.
 #
-# Add as a new view on an existing dashboard (Edit dashboard → + Add view →
-# ⋮ Edit in YAML → paste this).
+# Completion is the primary action. The list is urgency-ranked and filtered by a
+# selectable horizon (input_select.reminders_horizon); "All upcoming" shows
+# everything. Enabling/disabling a reminder is NOT a primary control — it's
+# behind double-tap → more-info.
 #
-# Design: completion is the primary action. The "Do next" card surfaces the
-# single most-urgent reminder (sensor.reminders_next_up) with one-tap complete /
-# snooze; the list below is urgency-ranked with the same gestures per row.
-# Enabling/disabling a reminder is NOT a primary control — it lives behind
-# double-tap → more-info.
+#   Tap = mark done    Hold = snooze 2h    Double-tap = details (enable/disable)
 #
-#   Tap    = mark done      Hold = snooze 2h      Double-tap = details (enable/disable)
-#
-# Custom cards (all via HACS): mushroom (chips), button-card, auto-entities.
+# Requires helper: input_select.reminders_horizon
+#   (options: Next 2 days / Next week / Next 2 weeks / Next month / All upcoming)
+# Custom cards (all via HACS): mushroom, button-card, auto-entities, card-mod.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
@@ -65,79 +63,60 @@ header:
               navigation_path: /config/integrations/integration/actionable_reminders
 
 sections:
-  # ── Do next: the single most-urgent reminder ───────────────────────────────
+  # ── Due next: urgency-ranked, filtered by the selected horizon ──────────────
   - type: grid
     column_span: 2
     cards:
       - type: heading
-        heading: Do next
+        heading: Due next
         heading_style: subtitle
-        icon: mdi:target
-      - type: custom:button-card
-        entity: sensor.reminders_next_up
-        show_state: false
-        show_label: true
-        name: "[[[ return states['sensor.reminders_next_up'].attributes.count > 0 ? entity.state : 'All clear' ]]]"
-        label: >-
-          [[[ var a=entity.attributes;
-              if (a.count > 0) { return a.summary + (a.count > 1 ? '   ·   +' + (a.count-1) + ' more' : ''); }
-              return 'Nothing needs doing right now'; ]]]
-        icon: >-
-          [[[ var s=entity.attributes.status;
-              return s==='triggered' ? 'mdi:bell-alert' : s==='overdue' ? 'mdi:bell-ring' : s==='due_soon' ? 'mdi:bell' : 'mdi:check-circle'; ]]]
-        tap_action:
-          action: call-service
-          service: actionable_reminders.mark_done
-          service_data:
-            entry_id: "[[[ return states['sensor.reminders_next_up'].attributes.entry_id; ]]]"
-          confirmation:
-            text: Mark the most urgent reminder done?
-        hold_action:
-          action: call-service
-          service: actionable_reminders.snooze
-          service_data:
-            entry_id: "[[[ return states['sensor.reminders_next_up'].attributes.entry_id; ]]]"
-            duration: "02:00:00"
-        double_tap_action:
-          action: more-info
-        styles:
-          card:
-            - padding: 14px 16px
-            - border-radius: 14px
-            - border-left: >-
-                [[[ var s=entity.attributes.status;
-                    var c = s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : 'var(--success-color)';
-                    return '5px solid ' + (entity.attributes.count>0 ? c : 'var(--success-color)'); ]]]
-          grid:
-            - grid-template-areas: '"i n" "i l"'
-            - grid-template-columns: 46px 1fr
-          icon:
-            - width: 32px
-            - color: >-
-                [[[ var s=entity.attributes.status;
-                    return s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : 'var(--success-color)'; ]]]
-          name:
-            - justify-self: start
-            - font-size: 17px
-            - font-weight: '600'
-          label:
-            - justify-self: start
-            - font-size: 13px
-            - color: var(--secondary-text-color)
-            - padding-top: 2px
-
-  # ── All reminders, urgency-ranked ───────────────────────────────────────────
-  - type: grid
-    cards:
-      - type: heading
-        heading: All reminders
-        heading_style: subtitle
-        icon: mdi:format-list-bulleted
+        icon: mdi:calendar-clock
+      - type: custom:mushroom-chips-card
+        alignment: start
+        chips:
+          - type: template
+            content: 2 days
+            icon_color: "{{ 'blue' if is_state('input_select.reminders_horizon','Next 2 days') else 'disabled' }}"
+            tap_action: &sel
+              action: perform-action
+              perform_action: input_select.select_option
+              target:
+                entity_id: input_select.reminders_horizon
+              data:
+                option: Next 2 days
+          - type: template
+            content: Week
+            icon_color: "{{ 'blue' if is_state('input_select.reminders_horizon','Next week') else 'disabled' }}"
+            tap_action:
+              <<: *sel
+              data:
+                option: Next week
+          - type: template
+            content: 2 wks
+            icon_color: "{{ 'blue' if is_state('input_select.reminders_horizon','Next 2 weeks') else 'disabled' }}"
+            tap_action:
+              <<: *sel
+              data:
+                option: Next 2 weeks
+          - type: template
+            content: Month
+            icon_color: "{{ 'blue' if is_state('input_select.reminders_horizon','Next month') else 'disabled' }}"
+            tap_action:
+              <<: *sel
+              data:
+                option: Next month
+          - type: template
+            content: All
+            icon_color: "{{ 'blue' if is_state('input_select.reminders_horizon','All upcoming') else 'disabled' }}"
+            tap_action:
+              <<: *sel
+              data:
+                option: All upcoming
       - type: markdown
         text_only: true
         content: "Tap = done · hold = snooze 2h · double-tap = details"
       - type: custom:auto-entities
-        show_empty: false
+        show_empty: true
         card:
           type: grid
           columns: 1
@@ -198,6 +177,15 @@ sections:
                     - justify-self: start
                     - font-size: 12px
                     - color: var(--secondary-text-color)
+                card_mod:
+                  style: |
+                    :host {
+                      display:
+                      {%- set m = {'Next 2 days':2,'Next week':7,'Next 2 weeks':14,'Next month':31,'All upcoming':99999} -%}
+                      {%- set lim = m.get(states('input_select.reminders_horizon'), 7) -%}
+                      {%- set du = state_attr(config.entity,'days_until_due')|int(99999) -%}
+                      {{ 'none' if du > lim else 'block' }} !important;
+                    }
           exclude:
             - entity_id: switch.actionable_reminders_master
 
