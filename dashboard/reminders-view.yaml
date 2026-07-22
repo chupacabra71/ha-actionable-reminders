@@ -1,16 +1,22 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # "Reminders" — a management view for the actionable_reminders integration.
 #
-# Completion is the primary action. The list is urgency-ranked (most urgent on
-# top). Enabling/disabling a reminder is behind double-tap → more-info.
+# Two side-by-side columns (max_columns: 2, one column_span:1 section each):
+#   • Due now   — reminders that actually need action (status overdue/due_soon/
+#                 triggered). Tap = done, hold = snooze 2h, double-tap = details.
+#   • Coming up — everything not yet due, sorted soonest-first. Tap opens a
+#                 browser_mod "Manage" popup (mark done early / snooze 3d / skip /
+#                 push 1 week / push 1 month); double-tap = details.
 #
-#   Tap = mark done    Hold = snooze 2h    Double-tap = details (enable/disable)
+# Rows are custom:button-card built by auto-entities include rules, status-
+# coloured, with a live progress bar for accumulator reminders. Dates show the
+# year when it is not the current year. Every card sets grid_options.columns:full
+# so a column collapses cleanly (a column_span:1 section is a 12-col grid).
 #
-# Rows are built by auto-entities (include rule) as custom:button-card, styled
-# per-status. Full-width band: max_columns is 2, so the column_span:2 section has
-# a 24-col internal grid — every card sets grid_options.columns: full so they
-# stack top-to-bottom instead of masonry-splitting.
-# Custom cards (all via HACS): mushroom, button-card, auto-entities.
+# The shared row config is the &rowbtn anchor; the Coming-up column merges it and
+# overrides tap/hold to get the popup.
+#
+# Custom cards (all via HACS): mushroom, button-card, auto-entities, browser_mod.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
@@ -63,51 +69,84 @@ header:
               navigation_path: /config/integrations/integration/actionable_reminders
 
 sections:
-  # ── Due next: urgency-ranked (most urgent on top) ───────────────────────────
+  # ── Due now: status overdue / due_soon / triggered ──────────────────────────
   - type: grid
-    column_span: 2
+    column_span: 1
     cards:
       - type: heading
-        heading: Due next
+        heading: Due now
         heading_style: subtitle
-        icon: mdi:calendar-clock
-        grid_options:
-          columns: full
-          rows: auto
+        icon: mdi:bell-alert
+        grid_options: { columns: full, rows: auto }
       - type: markdown
         text_only: true
         content: "Tap = done · hold = snooze 2h · double-tap = details"
-        grid_options:
-          columns: full
-          rows: auto
+        grid_options: { columns: full, rows: auto }
       - type: custom:auto-entities
         show_empty: true
-        card:
-          type: grid
-          columns: 1
-          square: false
+        card: { type: grid, columns: 1, square: false }
         card_param: cards
-        sort:
-          method: attribute
-          attribute: urgency
-          reverse: true
-          numeric: true
-        grid_options:
-          columns: full
-          rows: auto
+        grid_options: { columns: full, rows: auto }
+        sort: { method: attribute, attribute: urgency, reverse: true, numeric: true }
         filter:
           include:
             - domain: switch
               integration: actionable_reminders
-              options:
+              options: &rowbtn
                 type: custom:button-card
-                show_state: false
+                show_icon: true
+                show_name: true
                 show_label: true
+                show_state: false
                 name: "[[[ return entity.attributes.friendly_name; ]]]"
-                label: "[[[ return entity.attributes.summary || ''; ]]]"
-                icon: >
-                  [[[ var s=entity.attributes.status;
-                    return s==='triggered' ? 'mdi:bell-alert' : s==='overdue' ? 'mdi:bell-ring' : s==='due_soon' ? 'mdi:bell' : s==='disabled' ? 'mdi:bell-off' : 'mdi:bell-check'; ]]]
+                icon: "[[[ var s=entity.attributes.status; return s==='triggered'?'mdi:alert-circle':s==='overdue'?'mdi:alert':s==='due_soon'?'mdi:bell-ring':s==='disabled'?'mdi:bell-off':'mdi:check-circle-outline'; ]]]"
+                label: "[[[ var a=entity.attributes; if(a.condition_mode==='accumulator'){return Math.round(a.accumulator_remaining)+' hrs to go · '+Math.round(a.accumulator_limit)+'h limit';} if(a.next_due_date){var d=new Date(a.next_due_date+'T00:00:00'); var now=new Date(); var o={weekday:'short',month:'short',day:'numeric'}; if(d.getFullYear()!==now.getFullYear())o.year='numeric'; return d.toLocaleDateString('en-US',o);} return a.summary||''; ]]]"
+                custom_fields:
+                  meta: "[[[ var a=entity.attributes; var st=a.status; var col = st==='triggered'?'#ef5350':st==='overdue'?'#ffa726':st==='due_soon'?'#f0b429':st==='disabled'?'#9e9e9e':'#66bb6a'; var txt=''; if(a.condition_mode==='accumulator'){txt=Math.round(a.accumulator_progress_pct)+'%';} else if(a.days_until_due!=null && a.days_until_due<99999){txt=a.days_until_due<=0?'now':(a.days_until_due<60?a.days_until_due+'d':Math.round(a.days_until_due/30)+'mo');} else if(st==='ok'){txt='OK';} if(!txt)return ''; return '<span style=\"display:inline-flex;align-items:center;padding:4px 11px;border-radius:999px;background:color-mix(in srgb,'+col+' 20%,transparent);color:'+col+';font-weight:700;font-size:12.5px;white-space:nowrap;letter-spacing:.3px;\">'+txt+'</span>'; ]]]"
+                  bar: "[[[ var a=entity.attributes; var st=a.status; var col = st==='triggered'?'#ef5350':st==='overdue'?'#ffa726':st==='due_soon'?'#f0b429':st==='disabled'?'#9e9e9e':'#66bb6a'; if(a.condition_mode!=='accumulator')return ''; var pct=Math.max(3,Math.min(100,Math.round(a.accumulator_progress_pct||0))); return '<div style=\"width:100%;height:6px;border-radius:999px;background:color-mix(in srgb,'+col+' 15%,transparent);overflow:hidden;margin-top:9px;\"><div style=\"width:'+pct+'%;height:100%;border-radius:999px;background:'+col+';box-shadow:0 0 6px '+col+'99;\"></div></div>'; ]]]"
+                styles:
+                  card:
+                    - padding: 10px 14px
+                    - border-radius: 16px
+                    - min-height: 52px
+                    - background: "[[[ var a=entity.attributes; var st=a.status; var col = st==='triggered'?'#ef5350':st==='overdue'?'#ffa726':st==='due_soon'?'#f0b429':st==='disabled'?'#9e9e9e':'#66bb6a'; return 'color-mix(in srgb,'+col+' 7%, var(--card-background-color))'; ]]]"
+                    - box-shadow: "[[[ var a=entity.attributes; var st=a.status; var col = st==='triggered'?'#ef5350':st==='overdue'?'#ffa726':st==='due_soon'?'#f0b429':st==='disabled'?'#9e9e9e':'#66bb6a'; return 'inset 4px 0 0 0 '+col+', 0 1px 2px rgba(0,0,0,.25)'; ]]]"
+                    - opacity: "[[[ var a=entity.attributes; var st=a.status; if(st==='ok'){ if(a.condition_mode==='accumulator'){return a.accumulator_progress_pct<40?'0.85':'1';} if(a.days_until_due>=90)return '0.66'; if(a.days_until_due>=45)return '0.82'; } return '1'; ]]]"
+                  grid:
+                    - grid-template-areas: '"i n meta" "i l meta" "i bar bar"'
+                    - grid-template-columns: 46px 1fr auto
+                    - grid-gap: 0px 12px
+                    - align-items: center
+                  img_cell:
+                    - width: 42px
+                    - height: 42px
+                    - border-radius: 50%
+                    - align-self: center
+                    - padding: "0"
+                    - background: "[[[ var a=entity.attributes; var st=a.status; var col = st==='triggered'?'#ef5350':st==='overdue'?'#ffa726':st==='due_soon'?'#f0b429':st==='disabled'?'#9e9e9e':'#66bb6a'; return 'color-mix(in srgb,'+col+' 16%, transparent)'; ]]]"
+                  icon:
+                    - width: 22px
+                    - height: 22px
+                    - color: "[[[ var a=entity.attributes; var st=a.status; return st==='triggered'?'#ef5350':st==='overdue'?'#ffa726':st==='due_soon'?'#f0b429':st==='disabled'?'#9e9e9e':'#66bb6a'; ]]]"
+                  name:
+                    - justify-self: start
+                    - font-size: 15px
+                    - font-weight: "600"
+                    - color: var(--primary-text-color)
+                  label:
+                    - justify-self: start
+                    - font-size: 12px
+                    - color: var(--secondary-text-color)
+                    - padding-top: 2px
+                  custom_fields:
+                    meta:
+                      - align-self: center
+                      - justify-self: end
+                    bar:
+                      - justify-self: stretch
+                      - align-self: center
+                card_mod:
+                  style: "ha-card{transition:transform .12s ease,filter .12s ease;} ha-card:hover{transform:translateY(-1px);filter:brightness(1.08);}"
                 tap_action:
                   action: call-service
                   service: actionable_reminders.mark_done
@@ -123,37 +162,157 @@ sections:
                     duration: "02:00:00"
                 double_tap_action:
                   action: more-info
-                styles:
-                  card:
-                    - padding: 8px 12px
-                    - border-left: >
-                        [[[ var s=entity.attributes.status;
-                          var c = s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : s==='disabled' ? 'var(--disabled-text-color)' : 'var(--success-color)';
-                          return '4px solid ' + c; ]]]
-                  grid:
-                    - grid-template-areas: '"i n" "i l"'
-                    - grid-template-columns: 30px 1fr
-                  icon:
-                    - width: 20px
-                    - color: >
-                        [[[ var s=entity.attributes.status;
-                          return s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : s==='disabled' ? 'var(--disabled-text-color)' : 'var(--success-color)'; ]]]
-                  name:
-                    - justify-self: start
-                    - font-weight: "500"
-                  label:
-                    - justify-self: start
-                    - font-size: 12px
-                    - color: var(--secondary-text-color)
           exclude:
             - entity_id: switch.actionable_reminders_master
+            - attributes: { status: ok }
+            - attributes: { status: disabled }
+      - type: markdown
+        text_only: true
+        content: "### ✅ Nothing needs action right now"
+        grid_options: { columns: full, rows: auto }
+        visibility:
+          - condition: numeric_state
+            entity: sensor.reminders_next_up
+            attribute: count
+            below: 1
 
-  # ── Due now (checklist / Assist) ────────────────────────────────────────────
+  # ── Coming up: status ok, soonest-first, tap = manage popup ─────────────────
   - type: grid
+    column_span: 1
     cards:
       - type: heading
-        heading: Due now
+        heading: Coming up
         heading_style: subtitle
-        icon: mdi:checkbox-marked-circle-outline
-      - type: todo-list
-        entity: todo.actionable_reminders_reminders
+        icon: mdi:calendar-clock
+        grid_options: { columns: full, rows: auto }
+      - type: markdown
+        text_only: true
+        content: "Tap = manage (reschedule / done early / snooze) · double-tap = details"
+        grid_options: { columns: full, rows: auto }
+      - type: custom:auto-entities
+        show_empty: true
+        card: { type: grid, columns: 1, square: false }
+        card_param: cards
+        grid_options: { columns: full, rows: auto }
+        sort: { method: attribute, attribute: days_until_due, reverse: false, numeric: true }
+        filter:
+          include:
+            - domain: switch
+              integration: actionable_reminders
+              options:
+                <<: *rowbtn
+                # Coming-up rows: tap opens the Manage popup, hold snoozes 3 days.
+                # double_tap_action (more-info) is inherited from &rowbtn.
+                tap_action:
+                  action: fire-dom-event
+                  browser_mod:
+                    service: browser_mod.popup
+                    data:
+                      title: "[[[ return entity.attributes.friendly_name; ]]]"
+                      dismissable: true
+                      content:
+                        type: grid
+                        columns: 1
+                        square: false
+                        cards:
+                          - &poprow
+                            type: custom:button-card
+                            name: Mark done / serviced
+                            icon: mdi:check-circle
+                            show_name: true
+                            show_icon: true
+                            tap_action:
+                              action: call-service
+                              service: actionable_reminders.mark_done
+                              service_data:
+                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                            styles: &popstyle
+                              card:
+                                - padding: 13px 16px
+                                - border-radius: 12px
+                                - box-shadow: none
+                                - background: var(--secondary-background-color)
+                              grid:
+                                - grid-template-areas: '"i n"'
+                                - grid-template-columns: 26px 1fr
+                                - align-items: center
+                                - grid-gap: 16px
+                              icon:
+                                - width: 24px
+                                - height: 24px
+                                - color: "#66bb6a"
+                              name:
+                                - justify-self: start
+                                - font-size: 15px
+                                - font-weight: "500"
+                          - <<: *poprow
+                            name: Snooze 3 days
+                            icon: mdi:sleep
+                            tap_action:
+                              action: call-service
+                              service: actionable_reminders.snooze
+                              service_data:
+                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                                duration: "72:00:00"
+                            styles:
+                              <<: *popstyle
+                              icon:
+                                - width: 24px
+                                - height: 24px
+                                - color: "#f0b429"
+                          - <<: *poprow
+                            name: Skip this time
+                            icon: mdi:skip-next-circle-outline
+                            tap_action:
+                              action: call-service
+                              service: actionable_reminders.skip_today
+                              service_data:
+                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                            styles:
+                              <<: *popstyle
+                              icon:
+                                - width: 24px
+                                - height: 24px
+                                - color: "#9e9e9e"
+                          - <<: *poprow
+                            name: Push out 1 week
+                            icon: mdi:calendar-arrow-right
+                            tap_action:
+                              action: call-service
+                              service: actionable_reminders.reschedule_next
+                              service_data:
+                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                                date: "[[[ var d=new Date(); d.setDate(d.getDate()+7); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); ]]]"
+                            styles:
+                              <<: *popstyle
+                              icon:
+                                - width: 24px
+                                - height: 24px
+                                - color: "#42a5f5"
+                          - <<: *poprow
+                            name: Push out 1 month
+                            icon: mdi:calendar-arrow-right
+                            tap_action:
+                              action: call-service
+                              service: actionable_reminders.reschedule_next
+                              service_data:
+                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                                date: "[[[ var d=new Date(); d.setMonth(d.getMonth()+1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); ]]]"
+                            styles:
+                              <<: *popstyle
+                              icon:
+                                - width: 24px
+                                - height: 24px
+                                - color: "#42a5f5"
+                hold_action:
+                  action: call-service
+                  service: actionable_reminders.snooze
+                  service_data:
+                    entry_id: "[[[ return entity.attributes.entry_id; ]]]"
+                    duration: "72:00:00"
+          exclude:
+            - entity_id: switch.actionable_reminders_master
+            - attributes: { status: triggered }
+            - attributes: { status: overdue }
+            - attributes: { status: due_soon }
+            - attributes: { status: disabled }
