@@ -850,6 +850,18 @@ class ReminderRunner:
         return "ok"
 
     @property
+    def days_until_due(self) -> int:
+        """Days until next due (0 if due/overdue). No-date reminders
+        (condition/accumulator) report 0 when actionable, else a large number —
+        so a 'due within N days' filter includes them only when they matter."""
+        if not self._enabled:
+            return 99999
+        nd = self.next_due_date
+        if nd is not None:
+            return max((nd - dt_util.now().date()).days, 0)
+        return 0 if self.status in ("due_soon", "overdue", "triggered") else 99999
+
+    @property
     def is_snoozed(self) -> bool:
         """Whether the reminder is currently snoozed."""
         su = self._state.get(STATE_SNOOZE_UNTIL)

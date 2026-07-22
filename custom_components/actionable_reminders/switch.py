@@ -145,6 +145,7 @@ class ReminderSwitch(SwitchEntity):
             "urgency": round(self._runner.urgency, 3),
             "status": self._runner.status,
             "summary": self._runner.summary,
+            "days_until_due": self._runner.days_until_due,
             "mandatory": self._runner.mandatory,
             "snoozed_until": state.get(STATE_SNOOZE_UNTIL),
             "reschedule_date": state.get(STATE_RESCHEDULE_DATE),
