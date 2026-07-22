@@ -18,6 +18,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.helpers import selector
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_REMINDER_NAME,
@@ -122,7 +123,41 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         self._data = dict(subentry.data)
         msgs = self._data.get(CONF_PROMPT_MESSAGES) or []
         self._data["message"] = msgs[0] if msgs else ""
+        self._migrate_legacy_schedule()
         return await self.async_step_basics()
+
+    def _migrate_legacy_schedule(self) -> None:
+        """Map a legacy schedule type onto the unified 'repeating' form for editing.
+
+        daily/weekly/monthly/yearly/interval all become 'repeating' with an
+        every/unit/anchor — preserving weekday and monthly-pattern detail.
+        """
+        d = self._data
+        st = d.get(CONF_SCHEDULE_TYPE)
+        if st in (None, "repeating", "once", "condition"):
+            return
+        today = dt_util.now().date().isoformat()
+        d[CONF_SCHEDULE_TYPE] = "repeating"
+        if st == "daily":
+            d[CONF_INTERVAL_EVERY] = 1
+            d[CONF_INTERVAL_UNIT] = "days"
+            d.setdefault(CONF_INTERVAL_ANCHOR, today)
+        elif st == "weekly":
+            d[CONF_INTERVAL_EVERY] = 1
+            d[CONF_INTERVAL_UNIT] = "weeks"
+            d.setdefault(CONF_INTERVAL_ANCHOR, today)
+        elif st == "monthly":
+            d[CONF_INTERVAL_EVERY] = 1
+            d[CONF_INTERVAL_UNIT] = "months"
+            d.setdefault(CONF_INTERVAL_ANCHOR, today)
+        elif st == "yearly":
+            d[CONF_INTERVAL_EVERY] = 1
+            d[CONF_INTERVAL_UNIT] = "years"
+            d.setdefault(CONF_INTERVAL_ANCHOR, d.get(CONF_ANNIVERSARY_DATE) or today)
+        elif st == "interval":
+            d.setdefault(CONF_INTERVAL_EVERY, 1)
+            d.setdefault(CONF_INTERVAL_UNIT, "months")
+            d.setdefault(CONF_INTERVAL_ANCHOR, today)
 
     # ── step 1: basics ──────────────────────────────────────────────────────
 
@@ -140,15 +175,11 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 description={"suggested_value": d.get(CONF_REMINDER_NAME)},
             ): str,
             vol.Required(
-                CONF_SCHEDULE_TYPE, default=d.get(CONF_SCHEDULE_TYPE, "daily")
+                CONF_SCHEDULE_TYPE, default=d.get(CONF_SCHEDULE_TYPE, "repeating")
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
-                        {"label": "Daily", "value": "daily"},
-                        {"label": "Weekly", "value": "weekly"},
-                        {"label": "Monthly", "value": "monthly"},
-                        {"label": "Yearly", "value": "yearly"},
-                        {"label": "Every N days / weeks / months / years", "value": "interval"},
+                        {"label": "Repeating (every N days / weeks / months / years)", "value": "repeating"},
                         {"label": "One-time", "value": "once"},
                         {"label": "Condition (template / accumulator / threshold)", "value": "condition"},
                     ],
@@ -168,12 +199,19 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         stype = self._data[CONF_SCHEDULE_TYPE]
+        today_iso = dt_util.now().date().isoformat()
         if user_input is not None:
             self._data.update(user_input)
-            if stype == "monthly" and self._data.get(CONF_SCHEDULE_MONTHLY_TYPE) == "week_pattern":
-                return await self.async_step_monthly()
             if stype == "condition":
                 return await self.async_step_condition_detail()
+            if stype == "once":
+                return await self.async_step_behavior()
+            # repeating — per-unit detail
+            unit = self._data.get(CONF_INTERVAL_UNIT)
+            if unit == "weeks":
+                return await self.async_step_repeat_weekdays()
+            if unit == "months":
+                return await self.async_step_repeat_monthly()
             return await self.async_step_behavior()
 
         d = self._data
@@ -182,23 +220,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 CONF_SCHEDULE_TIME, default=d.get(CONF_SCHEDULE_TIME, "09:00")
             ): selector.TimeSelector(),
         }
-        if stype == "daily":
-            schema = vol.Schema(time_field)
-        elif stype == "weekly":
-            schema = vol.Schema({
-                **time_field,
-                vol.Required(
-                    CONF_SCHEDULE_DAYS,
-                    default=d.get(CONF_SCHEDULE_DAYS, ["mon", "tue", "wed", "thu", "fri"]),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[{"label": l, "value": k} for k, l in WEEKDAY_LABELS.items()],
-                        multiple=True,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-            })
-        elif stype == "condition":
+        if stype == "condition":
             schema = vol.Schema({
                 vol.Required(
                     CONF_CONDITION_MODE, default=d.get(CONF_CONDITION_MODE, "template"),
@@ -213,7 +235,15 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                     )
                 ),
             })
-        elif stype == "interval":
+        elif stype == "once":
+            schema = vol.Schema({
+                vol.Required(
+                    CONF_ONCE_DATE,
+                    default=d.get(CONF_ONCE_DATE) or today_iso,
+                ): selector.DateSelector(),
+                **time_field,
+            })
+        else:  # repeating
             schema = vol.Schema({
                 vol.Required(
                     CONF_INTERVAL_EVERY, default=d.get(CONF_INTERVAL_EVERY, 1),
@@ -221,66 +251,96 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                     selector.NumberSelectorConfig(min=1, max=999, mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Required(
-                    CONF_INTERVAL_UNIT, default=d.get(CONF_INTERVAL_UNIT, "months"),
+                    CONF_INTERVAL_UNIT, default=d.get(CONF_INTERVAL_UNIT, "weeks"),
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"label": "Days", "value": "days"},
-                            {"label": "Weeks", "value": "weeks"},
-                            {"label": "Months", "value": "months"},
-                            {"label": "Years", "value": "years"},
+                            {"label": "Day(s)", "value": "days"},
+                            {"label": "Week(s)", "value": "weeks"},
+                            {"label": "Month(s)", "value": "months"},
+                            {"label": "Year(s)", "value": "years"},
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
                 vol.Required(
                     CONF_INTERVAL_ANCHOR,
-                    description={"suggested_value": d.get(CONF_INTERVAL_ANCHOR)},
+                    default=d.get(CONF_INTERVAL_ANCHOR) or today_iso,
                 ): selector.DateSelector(),
                 **time_field,
-            })
-        elif stype == "yearly":
-            schema = vol.Schema({
-                vol.Required(
-                    CONF_ANNIVERSARY_DATE,
-                    description={"suggested_value": d.get(CONF_ANNIVERSARY_DATE)},
-                ): selector.DateSelector(),
-                **time_field,
-            })
-        elif stype == "once":
-            schema = vol.Schema({
-                vol.Required(
-                    CONF_ONCE_DATE,
-                    description={"suggested_value": d.get(CONF_ONCE_DATE)},
-                ): selector.DateSelector(),
-                **time_field,
-            })
-        else:  # monthly
-            schema = vol.Schema({
-                **time_field,
-                vol.Required(
-                    CONF_SCHEDULE_MONTHLY_TYPE,
-                    default=d.get(CONF_SCHEDULE_MONTHLY_TYPE, "day"),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"label": "Specific day (1-31)", "value": "day"},
-                            {"label": "Week pattern (e.g. first Wednesday)", "value": "week_pattern"},
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(
-                    CONF_SCHEDULE_MONTHLY_DAY,
-                    default=d.get(CONF_SCHEDULE_MONTHLY_DAY, 1),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=1, max=31, mode=selector.NumberSelectorMode.BOX)
-                ),
             })
         return self.async_show_form(
             step_id="schedule",
             data_schema=schema,
             description_placeholders={"schedule_type": stype.title()},
+        )
+
+    # ── step 2a: repeating detail (weekdays / monthly) ──────────────────────
+
+    async def async_step_repeat_weekdays(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """For 'every N weeks' — which weekdays (blank = the anchor's weekday)."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_behavior()
+        d = self._data
+        schema = vol.Schema({
+            vol.Optional(
+                CONF_SCHEDULE_DAYS, default=d.get(CONF_SCHEDULE_DAYS, []),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[{"label": l, "value": k} for k, l in WEEKDAY_LABELS.items()],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+        return self.async_show_form(
+            step_id="repeat_weekdays",
+            data_schema=schema,
+            description_placeholders={"info": (
+                "Which weekdays it lands on. Leave empty to use the start date's weekday."
+            )},
+        )
+
+    async def async_step_repeat_monthly(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """For 'every N months' — a specific day-of-month or a week-pattern."""
+        if user_input is not None:
+            self._data.update(user_input)
+            if self._data.get(CONF_SCHEDULE_MONTHLY_TYPE) == "week_pattern":
+                return await self.async_step_monthly()
+            return await self.async_step_behavior()
+        d = self._data
+        schema = vol.Schema({
+            vol.Required(
+                CONF_SCHEDULE_MONTHLY_TYPE,
+                default=d.get(CONF_SCHEDULE_MONTHLY_TYPE, "day"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"label": "A specific day of the month (1-31)", "value": "day"},
+                        {"label": "A week pattern (e.g. 1st & 3rd Wednesday)", "value": "week_pattern"},
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_SCHEDULE_MONTHLY_DAY,
+                default=d.get(CONF_SCHEDULE_MONTHLY_DAY, 1),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=31, mode=selector.NumberSelectorMode.BOX)
+            ),
+        })
+        return self.async_show_form(
+            step_id="repeat_monthly",
+            data_schema=schema,
+            description_placeholders={"info": (
+                "Pick a specific day, or a week pattern. Day 31 fires on the last day of "
+                "shorter months."
+            )},
         )
 
     async def async_step_monthly(
@@ -543,7 +603,22 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             CONF_DISMISS_MESSAGES: d.get(CONF_DISMISS_MESSAGES, DEFAULT_DISMISS_MESSAGES),
         }
 
-        if stype == "weekly":
+        if stype == "repeating":
+            config[CONF_INTERVAL_EVERY] = int(d.get(CONF_INTERVAL_EVERY, 1))
+            config[CONF_INTERVAL_UNIT] = d.get(CONF_INTERVAL_UNIT, "weeks")
+            config[CONF_INTERVAL_ANCHOR] = d.get(CONF_INTERVAL_ANCHOR)
+            unit = config[CONF_INTERVAL_UNIT]
+            if unit == "weeks":
+                config[CONF_SCHEDULE_DAYS] = d.get(CONF_SCHEDULE_DAYS, [])
+            elif unit == "months":
+                mtype = d.get(CONF_SCHEDULE_MONTHLY_TYPE, "day")
+                config[CONF_SCHEDULE_MONTHLY_TYPE] = mtype
+                if mtype == "day":
+                    config[CONF_SCHEDULE_MONTHLY_DAY] = d.get(CONF_SCHEDULE_MONTHLY_DAY, 1)
+                else:
+                    config[CONF_SCHEDULE_MONTHLY_WEEK] = d.get(CONF_SCHEDULE_MONTHLY_WEEK)
+                    config[CONF_SCHEDULE_MONTHLY_WEEKDAY] = d.get(CONF_SCHEDULE_MONTHLY_WEEKDAY)
+        elif stype == "weekly":
             config[CONF_SCHEDULE_DAYS] = d.get(CONF_SCHEDULE_DAYS, [])
         elif stype == "interval":
             config[CONF_INTERVAL_EVERY] = int(d.get(CONF_INTERVAL_EVERY, 1))

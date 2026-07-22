@@ -32,7 +32,7 @@
           },
           "data_description": {
             "reminder_name": "A short name, e.g. \"Give dogs meds\" or \"Change A/C filter\".",
-            "schedule_type": "Daily, weekly, monthly, yearly, one-time, or driven by a condition (template).",
+            "schedule_type": "Repeating (every N days/weeks/months/years, with weekday or day-of-month detail), a one-time date, or driven by a condition.",
             "message": "What you'll be asked, e.g. \"Did you give the dogs their meds?\""
           }
         },
@@ -161,6 +161,21 @@
             "threshold_below": "Due when the value drops to or below this.",
             "threshold_above": "Due when the value rises to or above this.",
             "threshold_hysteresis": "How far the value must recover past the trip point before the reminder clears — stops flapping."
+          }
+        },
+        "repeat_weekdays": {
+          "title": "Which weekdays?",
+          "description": "{info}",
+          "data": {
+            "schedule_days": "Weekdays"
+          }
+        },
+        "repeat_monthly": {
+          "title": "Which day of the month?",
+          "description": "{info}",
+          "data": {
+            "schedule_monthly_type": "Monthly pattern",
+            "schedule_monthly_day": "Day of the month"
           }
         }
       },

@@ -580,6 +580,9 @@ class ReminderRunner:
         elif self.schedule_type == "interval":
             return self._date_matches_interval(now.date())
 
+        elif self.schedule_type == "repeating":
+            return self._date_matches_repeating(now.date())
+
         elif self.schedule_type == "weekly":
             if not self.schedule_days:
                 return True
@@ -619,6 +622,8 @@ class ReminderRunner:
             return True
         if self.schedule_type == "interval":
             return self._date_matches_interval(d)
+        if self.schedule_type == "repeating":
+            return self._date_matches_repeating(d)
         if self.schedule_type == "weekly":
             if not self.schedule_days:
                 return True
@@ -663,6 +668,60 @@ class ReminderRunner:
                 return False
             last_day = calendar.monthrange(d.year, d.month)[1]
             return d.day == min(anchor.day, last_day)
+        if unit == "years":
+            years = d.year - anchor.year
+            if years < 0 or years % n != 0:
+                return False
+            if (anchor.month, anchor.day) == (2, 29) and not calendar.isleap(d.year):
+                return (d.month, d.day) == (2, 28)
+            return (d.month, d.day) == (anchor.month, anchor.day)
+        return False
+
+    def _date_matches_repeating(self, d: date) -> bool:
+        """Unified recurrence: 'every N units' from an anchor, with per-unit detail.
+
+        - days:   every N days from the anchor.
+        - weeks:  on the selected weekdays (default = anchor's weekday), in weeks
+                  that are N-aligned with the anchor's week.
+        - months: on a day-of-month (default = anchor's day) or a week-pattern
+                  (e.g. 1st & 3rd Wednesday), in months N-aligned with the anchor.
+        - years:  on the anchor's month/day, every N years.
+        """
+        if not self.interval_anchor:
+            return False
+        try:
+            anchor = date.fromisoformat(self.interval_anchor)
+        except (TypeError, ValueError):
+            return False
+        if d < anchor:
+            return False
+        n = max(int(self.interval_every or 1), 1)
+        unit = self.interval_unit or "months"
+        if unit == "days":
+            return (d - anchor).days % n == 0
+        if unit == "weeks":
+            days = self.schedule_days or [WEEKDAYS[anchor.weekday()]]
+            if WEEKDAYS[d.weekday()] not in days:
+                return False
+            d_wk = d - timedelta(days=d.weekday())
+            a_wk = anchor - timedelta(days=anchor.weekday())
+            return ((d_wk - a_wk).days // 7) % n == 0
+        if unit == "months":
+            months = (d.year - anchor.year) * 12 + (d.month - anchor.month)
+            if months < 0 or months % n != 0:
+                return False
+            if self.schedule_monthly_type == "week_pattern":
+                try:
+                    wd = WEEKDAYS.index(self.schedule_monthly_weekday)
+                except (ValueError, TypeError):
+                    return False
+                weeks = self.schedule_monthly_week
+                if isinstance(weeks, str):
+                    weeks = [weeks]
+                return any(self._matches_week_pattern(d, wk, wd) for wk in (weeks or []))
+            day = self.schedule_monthly_day or anchor.day
+            last = calendar.monthrange(d.year, d.month)[1]
+            return d.day == min(int(day), last)
         if unit == "years":
             years = d.year - anchor.year
             if years < 0 or years % n != 0:
