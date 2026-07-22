@@ -316,3 +316,23 @@ sections:
             - attributes: { status: overdue }
             - attributes: { status: due_soon }
             - attributes: { status: disabled }
+
+  # ── Add-by-voice hint ───────────────────────────────────────────────────────
+  # Assist voice creation is wired via a conversation-trigger automation
+  # ("Voice — create reminder") that calls actionable_reminders.create_reminder.
+  - type: grid
+    column_span: 2
+    cards:
+      - type: markdown
+        grid_options: { columns: full, rows: auto }
+        content: |
+          ### 🎙️ Add a reminder by voice
+          Say to **Assist** (the Assist dialog, a voice satellite, or any assistant routed to HA Assist):
+
+          - *“remind me to clean the gutters”* — one-time
+          - *“remind me to change the AC filter every 3 months”* — repeats
+          - *“add a reminder to water the ferns every 2 weeks”*
+
+          Add **“every N days / weeks / months / years”** to make it repeat — leave it off for a one-time reminder. Or use the **Add** chip above.
+        card_mod:
+          style: "ha-card{background:color-mix(in srgb, var(--primary-color) 6%, var(--card-background-color));border-left:3px solid var(--primary-color);border-radius:12px;padding:2px 6px;}"
