@@ -3,14 +3,14 @@
 #
 # Completion is the primary action. The list is urgency-ranked and filtered by a
 # selectable horizon (input_select.reminders_horizon); "All upcoming" shows
-# everything. Enabling/disabling a reminder is NOT a primary control — it's
-# behind double-tap → more-info.
+# everything. Enabling/disabling a reminder is behind double-tap → more-info.
 #
 #   Tap = mark done    Hold = snooze 2h    Double-tap = details (enable/disable)
 #
-# Requires helper: input_select.reminders_horizon
-#   (options: Next 2 days / Next week / Next 2 weeks / Next month / All upcoming)
-# Custom cards (all via HACS): mushroom, button-card, auto-entities, card-mod.
+# The list is built by a Jinja template filter (auto-entities) so only in-horizon
+# rows are rendered — no hidden-cell gaps. Requires helper
+# input_select.reminders_horizon.
+# Custom cards (all via HACS): mushroom, button-card, auto-entities.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
@@ -63,7 +63,7 @@ header:
               navigation_path: /config/integrations/integration/actionable_reminders
 
 sections:
-  # ── Due next: urgency-ranked, filtered by the selected horizon ──────────────
+  # ── Due next: urgency-ranked, filtered to the selected horizon ──────────────
   - type: grid
     column_span: 2
     cards:
@@ -122,72 +122,43 @@ sections:
           columns: 1
           square: false
         card_param: cards
-        sort:
-          method: attribute
-          attribute: urgency
-          reverse: true
-          numeric: true
         filter:
-          include:
-            - domain: switch
-              integration: actionable_reminders
-              options:
-                type: custom:button-card
-                show_state: false
-                show_label: true
-                name: "[[[ return entity.attributes.friendly_name; ]]]"
-                label: "[[[ return entity.attributes.summary || ''; ]]]"
-                icon: >-
-                  [[[ var s=entity.attributes.status;
-                      return s==='triggered' ? 'mdi:bell-alert' : s==='overdue' ? 'mdi:bell-ring' : s==='due_soon' ? 'mdi:bell' : s==='disabled' ? 'mdi:bell-off' : 'mdi:bell-check'; ]]]
-                tap_action:
-                  action: call-service
-                  service: actionable_reminders.mark_done
-                  service_data:
-                    entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                  confirmation:
-                    text: Mark this reminder done?
-                hold_action:
-                  action: call-service
-                  service: actionable_reminders.snooze
-                  service_data:
-                    entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                    duration: "02:00:00"
-                double_tap_action:
-                  action: more-info
-                styles:
-                  card:
-                    - padding: 8px 12px
-                    - border-left: >-
-                        [[[ var s=entity.attributes.status;
-                            var c = s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : s==='disabled' ? 'var(--disabled-text-color)' : 'var(--success-color)';
-                            return '4px solid ' + c; ]]]
-                  grid:
-                    - grid-template-areas: '"i n" "i l"'
-                    - grid-template-columns: 30px 1fr
-                  icon:
-                    - width: 20px
-                    - color: >-
-                        [[[ var s=entity.attributes.status;
-                            return s==='triggered' ? 'var(--error-color)' : s==='overdue' ? 'var(--warning-color)' : s==='due_soon' ? '#f0b429' : s==='disabled' ? 'var(--disabled-text-color)' : 'var(--success-color)'; ]]]
-                  name:
-                    - justify-self: start
-                    - font-weight: '500'
-                  label:
-                    - justify-self: start
-                    - font-size: 12px
-                    - color: var(--secondary-text-color)
-                card_mod:
-                  style: |
-                    :host {
-                      display:
-                      {%- set m = {'Next 2 days':2,'Next week':7,'Next 2 weeks':14,'Next month':31,'All upcoming':99999} -%}
-                      {%- set lim = m.get(states('input_select.reminders_horizon'), 7) -%}
-                      {%- set du = state_attr(config.entity,'days_until_due')|int(99999) -%}
-                      {{ 'none' if du > lim else 'block' }} !important;
-                    }
-          exclude:
-            - entity_id: switch.actionable_reminders_master
+          template: |
+            {% set m = {'Next 2 days':2,'Next week':7,'Next 2 weeks':14,'Next month':31,'All upcoming':99999} %}
+            {% set lim = m.get(states('input_select.reminders_horizon'), 7) %}
+            {% set ns = namespace(cards=[]) %}
+            {% set sw = states.switch
+                 | selectattr('attributes.days_until_due','defined')
+                 | rejectattr('entity_id','eq','switch.actionable_reminders_master')
+                 | sort(attribute='attributes.urgency', reverse=true) | list %}
+            {% for s in sw %}
+              {% if s.attributes.days_until_due | int(99999) <= lim %}
+                {% set st = s.attributes.status %}
+                {% set col = 'var(--error-color)' if st=='triggered' else 'var(--warning-color)' if st=='overdue' else '#f0b429' if st=='due_soon' else 'var(--disabled-text-color)' if st=='disabled' else 'var(--success-color)' %}
+                {% set ico = 'mdi:bell-alert' if st=='triggered' else 'mdi:bell-ring' if st=='overdue' else 'mdi:bell' if st=='due_soon' else 'mdi:bell-off' if st=='disabled' else 'mdi:bell-check' %}
+                {% set row = {
+                  'type':'custom:button-card',
+                  'entity': s.entity_id,
+                  'show_state': false,
+                  'show_label': true,
+                  'name': s.attributes.friendly_name,
+                  'label': s.attributes.summary | default(''),
+                  'icon': ico,
+                  'tap_action': {'action':'call-service','service':'actionable_reminders.mark_done','service_data':{'entry_id': s.attributes.entry_id},'confirmation':{'text':'Mark ' ~ s.attributes.friendly_name ~ ' done?'}},
+                  'hold_action': {'action':'call-service','service':'actionable_reminders.snooze','service_data':{'entry_id': s.attributes.entry_id,'duration':'02:00:00'}},
+                  'double_tap_action': {'action':'more-info'},
+                  'styles': {
+                    'card':[{'padding':'8px 12px'},{'border-left': '4px solid ' ~ col}],
+                    'grid':[{'grid-template-areas':'"i n" "i l"'},{'grid-template-columns':'30px 1fr'}],
+                    'icon':[{'width':'20px'},{'color': col}],
+                    'name':[{'justify-self':'start'},{'font-weight':'500'}],
+                    'label':[{'justify-self':'start'},{'font-size':'12px'},{'color':'var(--secondary-text-color)'}]
+                  }
+                } %}
+                {% set ns.cards = ns.cards + [row] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.cards | to_json }}
 
   # ── Due now (checklist / Assist) ────────────────────────────────────────────
   - type: grid
