@@ -233,3 +233,4 @@ SERVICE_FORCE_PROMPT = "force_prompt"
 SERVICE_SET_ACCUM_BASELINE = "set_accumulator_baseline"          # Set an accumulator reminder's baseline (data: entry_id, baseline)
 SERVICE_SNOOZE = "snooze"                                        # Defer a reminder (data: entry_id, duration)
 SERVICE_RESCHEDULE = "reschedule_next"                           # Move the next due date (data: entry_id, date)
+SERVICE_CREATE = "create_reminder"                               # Create a reminder programmatically / by voice (returns entry_id)

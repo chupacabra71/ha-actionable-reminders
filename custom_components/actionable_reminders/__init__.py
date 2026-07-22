@@ -16,12 +16,14 @@ from types import MappingProxyType
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import (
@@ -40,7 +42,30 @@ from .const import (
     SERVICE_SNOOZE,
     SERVICE_RESCHEDULE,
     SERVICE_CALENDAR_ACK,
+    SERVICE_CREATE,
     SIGNAL_REMINDERS_UPDATED,
+    CONF_REMINDER_NAME,
+    CONF_SCHEDULE_TYPE,
+    CONF_SCHEDULE_TIME,
+    CONF_PROMPT_MESSAGES,
+    CONF_ACK_MESSAGES,
+    CONF_DISMISS_MESSAGES,
+    CONF_ONCE_DATE,
+    CONF_ANNIVERSARY_DATE,
+    CONF_INTERVAL_EVERY,
+    CONF_INTERVAL_UNIT,
+    CONF_INTERVAL_ANCHOR,
+    CONF_SCHEDULE_DAYS,
+    CONF_SCHEDULE_MONTHLY_TYPE,
+    CONF_SCHEDULE_MONTHLY_DAY,
+    CONF_CONDITION_MODE,
+    CONF_DUE_TEMPLATE,
+    CONF_MANDATORY,
+    CONF_LEAD_TIMES,
+    DEFAULT_SCHEDULE_TIME,
+    DEFAULT_ACK_MESSAGES,
+    DEFAULT_DISMISS_MESSAGES,
+    WEEKDAYS,
 )
 from .reminder import ReminderRunner
 from .calendar_source import CalendarSource
@@ -416,6 +441,73 @@ async def _register_services(hass: HomeAssistant) -> None:
         if source and event_key:
             await source.ack(event_key)
 
+    async def handle_create_reminder(call: ServiceCall) -> ServiceResponse:
+        """Create a reminder programmatically / by voice.
+
+        Adds a reminder subentry to the hub (the same object the wizard writes),
+        which triggers a hub reload that spins up the runner and switch entity.
+        Returns the new reminder's entry_id so the caller can act on it.
+        """
+        hub_entry = _get_hub_entry(hass)
+        if hub_entry is None:
+            raise HomeAssistantError("Actionable Reminders hub is not set up")
+
+        d = call.data
+        name = d["name"]
+        stype = d.get("schedule_type", "once")
+        time_val = d.get("time")
+        config: dict[str, Any] = {
+            CONF_REMINDER_NAME: name,
+            CONF_SCHEDULE_TYPE: stype,
+            CONF_SCHEDULE_TIME: time_val.strftime("%H:%M") if time_val else DEFAULT_SCHEDULE_TIME,
+            CONF_PROMPT_MESSAGES: [d["message"]] if d.get("message") else [],
+            CONF_ACK_MESSAGES: DEFAULT_ACK_MESSAGES,
+            CONF_DISMISS_MESSAGES: DEFAULT_DISMISS_MESSAGES,
+        }
+        today = dt_util.now().date()
+
+        if stype == "once":
+            if not d.get("date"):
+                raise HomeAssistantError("schedule_type 'once' requires 'date'")
+            config[CONF_ONCE_DATE] = str(d["date"])
+        elif stype == "yearly":
+            if not d.get("date"):
+                raise HomeAssistantError("schedule_type 'yearly' requires 'date'")
+            config[CONF_ANNIVERSARY_DATE] = str(d["date"])
+        elif stype == "repeating":
+            unit = d.get("unit", "weeks")
+            anchor = d.get("anchor") or today
+            config[CONF_INTERVAL_EVERY] = int(d.get("every", 1))
+            config[CONF_INTERVAL_UNIT] = unit
+            config[CONF_INTERVAL_ANCHOR] = str(anchor)
+            if unit == "weeks":
+                config[CONF_SCHEDULE_DAYS] = list(d.get("weekdays") or [])
+            elif unit == "months":
+                config[CONF_SCHEDULE_MONTHLY_TYPE] = "day"
+                config[CONF_SCHEDULE_MONTHLY_DAY] = anchor.day
+        elif stype == "condition":
+            if not d.get("due_template"):
+                raise HomeAssistantError("schedule_type 'condition' requires 'due_template'")
+            config[CONF_CONDITION_MODE] = "template"
+            config[CONF_DUE_TEMPLATE] = d["due_template"]
+        else:
+            raise HomeAssistantError(f"Unsupported schedule_type: {stype}")
+
+        if d.get("mandatory"):
+            config[CONF_MANDATORY] = True
+        if d.get("lead_times"):
+            config[CONF_LEAD_TIMES] = [int(x) for x in d["lead_times"]]
+
+        subentry = ConfigSubentry(
+            data=MappingProxyType(config),
+            subentry_type=SUBENTRY_TYPE_REMINDER,
+            title=name,
+            unique_id=None,
+        )
+        hass.config_entries.async_add_subentry(hub_entry, subentry)
+        _LOGGER.info("Created reminder '%s' (subentry %s)", name, subentry.subentry_id)
+        return {"entry_id": subentry.subentry_id, "name": name}
+
     # Register services with Home Assistant
     hass.services.async_register(
         DOMAIN,
@@ -497,12 +589,36 @@ async def _register_services(hass: HomeAssistant) -> None:
         }),
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CREATE,
+        handle_create_reminder,
+        schema=vol.Schema({
+            vol.Required("name"): cv.string,
+            vol.Optional("schedule_type", default="once"): vol.In(
+                ["once", "repeating", "yearly", "condition"]
+            ),
+            vol.Optional("time"): cv.time,
+            vol.Optional("date"): cv.date,
+            vol.Optional("every"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional("unit"): vol.In(["days", "weeks", "months", "years"]),
+            vol.Optional("weekdays"): vol.All(cv.ensure_list, [vol.In(WEEKDAYS)]),
+            vol.Optional("anchor"): cv.date,
+            vol.Optional("due_template"): cv.string,
+            vol.Optional("message"): cv.string,
+            vol.Optional("mandatory"): cv.boolean,
+            vol.Optional("lead_times"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
     _LOGGER.info(
         "Services registered: %s",
         ", ".join([
             SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY,
             SERVICE_FORCE_PROMPT, SERVICE_SET_ACCUM_BASELINE,
             SERVICE_SNOOZE, SERVICE_RESCHEDULE, SERVICE_CALENDAR_ACK,
+            SERVICE_CREATE,
         ]),
     )
 
@@ -519,5 +635,17 @@ def _get_runner_by_id(hass: HomeAssistant, entry_id: str) -> ReminderRunner | No
     """
     if DOMAIN not in hass.data or "hub" not in hass.data[DOMAIN]:
         return None
-    
+
     return hass.data[DOMAIN]["hub"]["reminders"].get(entry_id)
+
+
+def _get_hub_entry(hass: HomeAssistant) -> ConfigEntry | None:
+    """Return the hub config entry (the one that owns reminder subentries)."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    for entry in entries:
+        if entry.data.get("type", CONF_TYPE_REMINDER) == CONF_TYPE_HUB:
+            return entry
+    for entry in entries:
+        if entry.subentries:
+            return entry
+    return entries[0] if entries else None

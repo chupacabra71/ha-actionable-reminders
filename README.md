@@ -45,6 +45,49 @@ a single engine that any input can feed:
 | `actionable_reminders.dismiss` | `entry_id` | Dismiss the current prompt |
 | `actionable_reminders.skip_today` | `entry_id` | Skip today |
 | `actionable_reminders.force_prompt` | `entry_id` | Prompt now — the hook for external / condition-driven inputs |
+| `actionable_reminders.snooze` | `entry_id`, `duration` | Defer until the duration elapses (refused for mandatory) |
+| `actionable_reminders.reschedule_next` | `entry_id`, `date` | Move the next due date (scheduled reminders only) |
+| `actionable_reminders.set_accumulator_baseline` | `entry_id`, `baseline` | Re-anchor an accumulator's counter without completing |
+| `actionable_reminders.create_reminder` | `name`, `schedule_type`, … | Create a reminder by voice / automation; returns the new `entry_id` |
+
+### Creating reminders programmatically
+
+`create_reminder` builds the same reminder object the config wizard writes and
+returns the new `entry_id` in its response. Examples:
+
+```yaml
+# One-time
+action: actionable_reminders.create_reminder
+data:
+  name: Call the plumber
+  schedule_type: once
+  date: "2026-08-01"
+  time: "10:00"
+
+# Repeating — every 2 weeks on Saturday
+action: actionable_reminders.create_reminder
+data:
+  name: Water the ferns
+  schedule_type: repeating
+  every: 2
+  unit: weeks
+  weekdays: [sat]
+
+# Yearly anniversary / birthday
+action: actionable_reminders.create_reminder
+data:
+  name: Mom's Birthday
+  schedule_type: yearly
+  date: "1955-04-01"
+
+# Condition (due while a template is truthy)
+action: actionable_reminders.create_reminder
+data:
+  name: Refill water softener
+  schedule_type: condition
+  due_template: "{{ is_state('binary_sensor.softener_low','on') }}"
+  response_variable: new_reminder   # -> {entry_id, name}
+```
 
 ## Notifications
 

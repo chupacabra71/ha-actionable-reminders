@@ -125,3 +125,121 @@ set_accumulator_baseline:
         number:
           mode: box
           step: any
+
+create_reminder:
+  name: Create Reminder
+  description: >-
+    Create a new reminder programmatically or by voice. Returns the new
+    reminder's entry_id in the service response.
+  fields:
+    name:
+      name: Name
+      description: Display name for the reminder.
+      required: true
+      example: Water the plants
+      selector:
+        text:
+    schedule_type:
+      name: Schedule type
+      description: How the reminder recurs.
+      required: false
+      default: once
+      selector:
+        select:
+          options:
+            - label: One-time (on a date)
+              value: once
+            - label: Repeating (every N days/weeks/months)
+              value: repeating
+            - label: Yearly (anniversary / birthday)
+              value: yearly
+            - label: Condition (Jinja template due-when)
+              value: condition
+    time:
+      name: Time of day
+      description: When it should prompt. Defaults to 09:00.
+      required: false
+      example: "09:00"
+      selector:
+        time:
+    date:
+      name: Date
+      description: Required for One-time and Yearly. For yearly, the month/day recurs (the year is used only for age).
+      required: false
+      example: "2026-09-02"
+      selector:
+        date:
+    every:
+      name: Every (N)
+      description: For Repeating — the interval count (e.g. 2 with unit "weeks" = every 2 weeks).
+      required: false
+      example: 1
+      selector:
+        number:
+          mode: box
+          min: 1
+          step: 1
+    unit:
+      name: Interval unit
+      description: For Repeating.
+      required: false
+      default: weeks
+      selector:
+        select:
+          options: [days, weeks, months, years]
+    weekdays:
+      name: Weekdays
+      description: For Repeating with unit "weeks" — restrict to these days (optional).
+      required: false
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
+    anchor:
+      name: Anchor date
+      description: For Repeating — the first occurrence the interval counts from. Defaults to today.
+      required: false
+      example: "2026-07-22"
+      selector:
+        date:
+    due_template:
+      name: Due template
+      description: For Condition — a Jinja template; the reminder is due while it renders truthy.
+      required: false
+      example: "{{ is_state('binary_sensor.water_low','on') }}"
+      selector:
+        template:
+    message:
+      name: Prompt message
+      description: Custom text spoken/shown when prompting. Optional.
+      required: false
+      example: Time to water the plants
+      selector:
+        text:
+    mandatory:
+      name: Mandatory
+      description: If on, the reminder cannot be skipped, snoozed, or rescheduled and never auto-gives-up.
+      required: false
+      selector:
+        boolean:
+    lead_times:
+      name: Lead times (days before)
+      description: Pre-notification offsets in days before due (e.g. [7, 1]). Optional.
+      required: false
+      example: "[7, 1]"
+      selector:
+        object:
