@@ -208,6 +208,9 @@ DEFAULT_BIRTHDAY_QUESTION_PHRASES = [
     "Have you wished them a happy birthday?",
     "Did you send your wishes?",
 ]
+# Response cue appended after the question on actionable prompts so people
+# answer yes/no (the only replies the Alexa actionable skill understands).
+DEFAULT_RESPONSE_HINT = "Just say yes or no."
 
 # Spoken (and mobile) confirmation after a completion — rotated for variety.
 DEFAULT_ACK_MESSAGES = [

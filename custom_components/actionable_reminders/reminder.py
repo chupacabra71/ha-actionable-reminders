@@ -121,6 +121,7 @@ from .const import (
     DEFAULT_DISMISS_MESSAGES,
     DEFAULT_QUESTION_PHRASES,
     DEFAULT_BIRTHDAY_QUESTION_PHRASES,
+    DEFAULT_RESPONSE_HINT,
     WEEKDAYS,
     MONTHLY_WEEKS,
 )
@@ -1294,7 +1295,10 @@ class ReminderRunner:
             else DEFAULT_QUESTION_PHRASES
         )
         question = random.choice(phrases)
-        return f"{text} {question}".strip() if text else question
+        # Cue the yes/no reply — the actionable skill only maps Yes/No intents,
+        # so a "mark it done" style answer never registers.
+        parts = [p for p in (text, question, DEFAULT_RESPONSE_HINT) if p]
+        return " ".join(parts)
 
     async def _send_prompt(self, now: datetime) -> None:
         """Send a reminder prompt."""
@@ -1416,6 +1420,17 @@ class ReminderRunner:
                     ],
                     "dismiss_text": "Not yet",
                     "dismiss_action": [
+                        {
+                            "action": f"{DOMAIN}.dismiss",
+                            "data": {"entry_id": self.entry_id},
+                        }
+                    ],
+                    # A spoken reply that isn't yes/no makes the Alexa skill fire
+                    # ResponseNone; the script runs timeout_actions for that (even
+                    # without run_timeout_actions, so a silent no-answer stays
+                    # quiet). Treat it as "not yet" — dismiss speaks a rotating
+                    # "I'll remind you again" and logs it, cueing a proper yes/no.
+                    "timeout_actions": [
                         {
                             "action": f"{DOMAIN}.dismiss",
                             "data": {"entry_id": self.entry_id},
