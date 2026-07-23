@@ -1782,24 +1782,41 @@ class ReminderRunner:
     # ────────────────────────────────────────────────────────────────────────────
 
     async def _send_ack(self, message: str) -> None:
-        """Send acknowledgment message via Alexa."""
+        """Speak a short confirmation (completion ack / dismiss "remind later").
+
+        Prefer script.unified_notifications (a plain voice announce) so the ack
+        rides the SAME default-Echo delivery as the prompt — a reminder with no
+        alexa_devices still gets spoken feedback. Fall back to a direct Alexa TTS
+        only if the script isn't present, keeping the integration shareable.
+        """
+        if self._use_unified_notifications():
+            data = {
+                "method": "voice",
+                "who": "all",
+                "severity": "INFO",
+                "message": message,
+            }
+            if self.alexa_devices:
+                data["alexa_device"] = self.alexa_devices[0]
+            try:
+                await self.hass.services.async_call(
+                    "script", "unified_notifications", data, blocking=False
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("Failed to send ack for %s: %s", self.name, e)
+            return
+
+        # Fallback (script absent): direct Alexa TTS, only if a device is set.
         if not self.alexa_devices:
             return
-        
         for device in self.alexa_devices:
             try:
                 await self.hass.services.async_call(
                     "notify",
                     "alexa_media",
-                    {
-                        "message": message,
-                        "target": device,
-                        "data": {
-                            "type": "tts",
-                        }
-                    },
+                    {"message": message, "target": device, "data": {"type": "tts"}},
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 _LOGGER.error("Failed to send ack for %s: %s", self.name, e)
 
     # ────────────────────────────────────────────────────────────────────────────
