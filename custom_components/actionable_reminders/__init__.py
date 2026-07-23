@@ -43,6 +43,7 @@ from .const import (
     SERVICE_RESCHEDULE,
     SERVICE_CALENDAR_ACK,
     SERVICE_CREATE,
+    SERVICE_SET_MESSAGES,
     SIGNAL_REMINDERS_UPDATED,
     CONF_REMINDER_NAME,
     CONF_SCHEDULE_TYPE,
@@ -508,6 +509,25 @@ async def _register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Created reminder '%s' (subentry %s)", name, subentry.subentry_id)
         return {"entry_id": subentry.subentry_id, "name": name}
 
+    async def handle_set_messages(call: ServiceCall) -> None:
+        """Replace a reminder's prompt message list (factual text only).
+
+        The engine appends the rotating "did you do it?" question at send time,
+        so stored messages should stay factual. Multiple messages rotate at
+        random. Updating the subentry triggers a hub reload that re-reads them.
+        """
+        entry_id = call.data["entry_id"]
+        messages = [str(m) for m in call.data["messages"]]
+        runner = _get_runner_by_id(hass, entry_id)
+        if runner is None:
+            raise HomeAssistantError(f"Reminder not found: {entry_id}")
+        hass.config_entries.async_update_subentry(
+            runner._hub_entry,
+            runner._subentry,
+            data={**runner._subentry.data, CONF_PROMPT_MESSAGES: messages},
+        )
+        _LOGGER.info("Updated prompt messages for %s (%d)", runner.name, len(messages))
+
     # Register services with Home Assistant
     hass.services.async_register(
         DOMAIN,
@@ -612,13 +632,23 @@ async def _register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_MESSAGES,
+        handle_set_messages,
+        schema=vol.Schema({
+            vol.Required("entry_id"): cv.string,
+            vol.Required("messages"): vol.All(cv.ensure_list, [cv.string], vol.Length(min=1)),
+        }),
+    )
+
     _LOGGER.info(
         "Services registered: %s",
         ", ".join([
             SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY,
             SERVICE_FORCE_PROMPT, SERVICE_SET_ACCUM_BASELINE,
             SERVICE_SNOOZE, SERVICE_RESCHEDULE, SERVICE_CALENDAR_ACK,
-            SERVICE_CREATE,
+            SERVICE_CREATE, SERVICE_SET_MESSAGES,
         ]),
     )
 

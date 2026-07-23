@@ -243,3 +243,25 @@ create_reminder:
       example: "[7, 1]"
       selector:
         object:
+
+set_messages:
+  name: Set Reminder Messages
+  description: >-
+    Replace a reminder's prompt message(s) with factual text. The engine appends
+    a rotating "did you do it?" question on actionable sends, so keep these
+    factual. Provide several to have them rotate at random.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The reminder's entry_id (from its switch entity attributes).
+      required: true
+      example: "01ABC..."
+      selector:
+        text:
+    messages:
+      name: Messages
+      description: One or more factual prompt messages. Multiple rotate at random.
+      required: true
+      example: '["The upstairs A/C filter is due for a change."]'
+      selector:
+        object:

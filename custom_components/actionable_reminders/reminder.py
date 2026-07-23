@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import calendar
 import random
+import re
 from datetime import date, datetime, time as dt_time, timedelta
 import logging
 from typing import Any
@@ -118,6 +119,8 @@ from .const import (
     DEFAULT_ENABLED,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
+    DEFAULT_QUESTION_PHRASES,
+    DEFAULT_BIRTHDAY_QUESTION_PHRASES,
     WEEKDAYS,
     MONTHLY_WEEKS,
 )
@@ -248,8 +251,12 @@ class ReminderRunner:
         
         # Messages (lists)
         self.prompt_messages = config.get(CONF_PROMPT_MESSAGES, [])
-        self.ack_messages = config.get(CONF_ACK_MESSAGES, DEFAULT_ACK_MESSAGES)
-        self.dismiss_messages = config.get(CONF_DISMISS_MESSAGES, DEFAULT_DISMISS_MESSAGES)
+        # Ack / dismiss confirmations are a shared, global rotating pool (every
+        # reminder used the same set) — resolve from the code defaults so growing
+        # the pool is a one-place change, not a per-reminder edit. A per-reminder
+        # override can be reintroduced later if a reminder ever needs bespoke text.
+        self.ack_messages = DEFAULT_ACK_MESSAGES
+        self.dismiss_messages = DEFAULT_DISMISS_MESSAGES
         
         # Notification settings (use hub defaults if not specified)
         self.mobile_service = config.get(
@@ -1259,6 +1266,36 @@ class ReminderRunner:
         if self.alexa_devices:
             await self._send_alexa_announce(message, self.alexa_devices, 0.4)
 
+    # Trailing CTAs the engine now supplies itself ("did you do it?"). Stripped
+    # from the stored message so the spoken text stays factual and isn't doubled.
+    _CTA_TAIL = re.compile(
+        r"\s*[—–,.:-]*\s*(?:then\s+|and\s+)?(?:please\s+)?"
+        r"(?:mark(?:ing)?\s+(?:it|this|that)\s+done"
+        r"|say(?:ing)?\s+done(?:\s+when\s+\w+)?)\.?\s*$",
+        re.IGNORECASE,
+    )
+
+    def _decorate_prompt(self, base: str) -> str:
+        """Return a factual message plus a rotating "did you do it?" question.
+
+        Strips any leftover "mark it done" / "say done" CTA the stored message
+        may still carry, then appends a random question phrase (a birthday-
+        specific set for birthdays).
+        """
+        text = (base or "").strip()
+        text = self._CTA_TAIL.sub("", text).strip()
+        # Tidy a dangling separator the strip may leave (e.g. "... is due —").
+        text = re.sub(r"[\s—–,;:-]+$", "", text).strip()
+        if text and text[-1] not in ".!?":
+            text += "."
+        phrases = (
+            DEFAULT_BIRTHDAY_QUESTION_PHRASES
+            if "birthday" in self.name.lower()
+            else DEFAULT_QUESTION_PHRASES
+        )
+        question = random.choice(phrases)
+        return f"{text} {question}".strip() if text else question
+
     async def _send_prompt(self, now: datetime) -> None:
         """Send a reminder prompt."""
         # Select random prompt message
@@ -1266,7 +1303,13 @@ class ReminderRunner:
             prompt = random.choice(self.prompt_messages)
         else:
             prompt = f"Did you complete: {self.name}?"
-        
+
+        # Actionable prompts ask for a Yes/No, so append a rotating question and
+        # keep the stored message purely factual. Non-actionable announcements
+        # (self.actionable is False) are left as-is — no response is expected.
+        if self.actionable:
+            prompt = self._decorate_prompt(prompt)
+
         _LOGGER.info(
             "Sending prompt for %s (retries=%s, escalated=%s)",
             self.name,
@@ -1352,6 +1395,10 @@ class ReminderRunner:
             "title": "🔔 Reminder",
             "message": message,
             "tag": f"ar_{self.entry_id}",
+            # Keep the mobile Done/Not-yet buttons live for 15 min. Alexa's voice
+            # window is Amazon-capped at ~30-60s regardless (it returns its own
+            # "no response" at that point); this just widens the app path.
+            "timeout": "00:15:00",
         }
         # Target a configured Echo if one is set; otherwise let the notification
         # script choose its own default device.

@@ -188,15 +188,52 @@ DEFAULT_UNTIL_DONE = True                                        # Keep promptin
 
 # Message defaults
 DEFAULT_PROMPT_MESSAGE = "Did you complete: {reminder_name}?"
-DEFAULT_ACK_MESSAGES = [
-    "Thank you!",
-    "Got it, thanks!",
-    "Great, marked as done!",
+
+# Confirmation phrases appended to ACTIONABLE prompts at send time, chosen at
+# random each send so the question doesn't sound canned. Stored prompt_messages
+# stay purely factual; the engine adds the "did you do it?" ask.
+DEFAULT_QUESTION_PHRASES = [
+    "Did you do it?",
+    "Did you get to it?",
+    "All taken care of?",
+    "Is it done?",
+    "Have you handled it?",
+    "Did you take care of it?",
+    "Done yet?",
+    "Did you knock it out?",
 ]
+# Birthdays aren't "did you do it" tasks — give them their own ask.
+DEFAULT_BIRTHDAY_QUESTION_PHRASES = [
+    "Did you reach out?",
+    "Have you wished them a happy birthday?",
+    "Did you send your wishes?",
+]
+
+# Spoken (and mobile) confirmation after a completion — rotated for variety.
+DEFAULT_ACK_MESSAGES = [
+    "Done, nice work.",
+    "Great, checked it off.",
+    "All set — thanks.",
+    "Got it, marked as done.",
+    "Perfect, that's handled.",
+    "Nice, one less thing on the list.",
+    "Consider it done.",
+    "Awesome, crossed it off.",
+    "That's taken care of.",
+    "Great job — marked complete.",
+    "Boom, done.",
+    "Thanks, all done.",
+]
+# Spoken confirmation after a "no"/remind-later — reassures it'll come back.
 DEFAULT_DISMISS_MESSAGES = [
-    "Okay, I'll remind you again soon.",
-    "No problem, checking back later.",
-    "Alright, talk to you in a bit.",
+    "No problem, I'll remind you again later.",
+    "Okay, I'll check back with you soon.",
+    "Sure, I'll bring it up again later.",
+    "No worries, I'll nudge you again later.",
+    "Alright, I'll remind you again in a bit.",
+    "Got it, I'll ask again later.",
+    "Okay, I'll circle back on this.",
+    "No rush, I'll remind you again.",
 ]
 
 # Weekday mapping
@@ -234,3 +271,4 @@ SERVICE_SET_ACCUM_BASELINE = "set_accumulator_baseline"          # Set an accumu
 SERVICE_SNOOZE = "snooze"                                        # Defer a reminder (data: entry_id, duration)
 SERVICE_RESCHEDULE = "reschedule_next"                           # Move the next due date (data: entry_id, date)
 SERVICE_CREATE = "create_reminder"                               # Create a reminder programmatically / by voice (returns entry_id)
+SERVICE_SET_MESSAGES = "set_messages"                            # Replace a reminder's prompt message list (data: entry_id, messages)
