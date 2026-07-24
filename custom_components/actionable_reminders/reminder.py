@@ -1438,6 +1438,17 @@ class ReminderRunner:
                     ],
                 }
             )
+            # A spoken duration ("snooze two hours") makes the Alexa skill fire
+            # ResponseDuration; the switchboard injects the seconds into this
+            # snooze call and satisfies its own wait (no timeout/dismiss). Mandatory
+            # reminders can't be snoozed, so don't offer it — snooze would no-op.
+            if not self.mandatory:
+                data["duration_action"] = [
+                    {
+                        "action": f"{DOMAIN}.snooze",
+                        "data": {"entry_id": self.entry_id, "source": "voice"},
+                    }
+                ]
         try:
             await self.hass.services.async_call(
                 "script", "unified_notifications", data, blocking=False
