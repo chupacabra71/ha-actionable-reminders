@@ -59,6 +59,7 @@ from .const import (
     CONF_MAX_RETRIES,
     CONF_ESCALATION_INTERVAL,
     CONF_MAX_ESCALATIONS,
+    CONF_RESPONSE_WINDOW,
     CONF_PRESENCE_SENSORS,
     CONF_CATCHUP_ON_ARRIVAL,
     CONF_QUIET_START,
@@ -561,6 +562,9 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 CONF_MAX_ESCALATIONS, description={"suggested_value": d.get(CONF_MAX_ESCALATIONS)}
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
             vol.Optional(
+                CONF_RESPONSE_WINDOW, description={"suggested_value": d.get(CONF_RESPONSE_WINDOW)}
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+            vol.Optional(
                 CONF_PRESENCE_SENSORS, default=d.get(CONF_PRESENCE_SENSORS, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
@@ -655,7 +659,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         for key in (
             CONF_NAG, CONF_MANDATORY, CONF_ALLOW_CRITICAL, CONF_OPTIONAL, CONF_UNTIL_DONE, CONF_LEAD_TIMES,
             CONF_MOBILE_SERVICE, CONF_ALEXA_DEVICES, CONF_ACTIONABLE, CONF_ESCALATION_VOLUME,
-            CONF_RETRY_INTERVAL, CONF_MAX_RETRIES, CONF_ESCALATION_INTERVAL, CONF_MAX_ESCALATIONS,
+            CONF_RETRY_INTERVAL, CONF_MAX_RETRIES, CONF_ESCALATION_INTERVAL, CONF_MAX_ESCALATIONS, CONF_RESPONSE_WINDOW,
             CONF_PRESENCE_SENSORS, CONF_CATCHUP_ON_ARRIVAL, CONF_QUIET_START, CONF_QUIET_END,
             CONF_ON_COMPLETE,
         ):

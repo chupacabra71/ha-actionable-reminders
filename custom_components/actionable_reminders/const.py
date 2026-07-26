@@ -59,6 +59,7 @@ SIGNAL_MASTER_UPDATED = f"{DOMAIN}_master_updated"               # Fired when th
 CONF_DEFAULT_RETRY_INTERVAL = "default_retry_interval"           # Minutes between retries
 CONF_DEFAULT_MAX_RETRIES = "default_max_retries"                 # Retries before escalation
 CONF_DEFAULT_ESCALATION_INTERVAL = "default_escalation_interval" # Minutes between escalated retries
+CONF_DEFAULT_RESPONSE_WINDOW = "default_response_window"          # Hub-level: minutes to keep the actionable response window open
 CONF_DEFAULT_MAX_ESCALATIONS = "default_max_escalations"         # Escalations before auto-skip
 CONF_EARLIEST_RETRY_TIME = "earliest_retry_time"                 # Time to restart after auto-skip (HH:MM)
 
@@ -122,6 +123,7 @@ CONF_ESCALATION_VOLUME = "escalation_volume"                     # Volume during
 
 # Retry and escalation (can override hub defaults)
 CONF_RETRY_INTERVAL = "retry_interval"                           # Minutes between retries
+CONF_RESPONSE_WINDOW = "response_window"                          # Per-reminder override: minutes to keep the response window open (blank = inherit hub default)
 CONF_MAX_RETRIES = "max_retries"                                 # Retries before escalation
 CONF_ESCALATION_INTERVAL = "escalation_interval"                 # Minutes between escalated retries
 CONF_MAX_ESCALATIONS = "max_escalations"                         # Escalations before auto-skip
@@ -166,6 +168,7 @@ STATE_RESCHEDULE_DATE = "reschedule_date"                        # ISO date; ove
 DEFAULT_RETRY_INTERVAL = 30                                      # 30 minutes
 DEFAULT_MAX_RETRIES = 5                                          # 5 retries before escalation
 DEFAULT_ESCALATION_INTERVAL = 15                                 # 15 minutes during escalation
+DEFAULT_RESPONSE_WINDOW = 15                                      # Minutes to keep the actionable response window open (mobile buttons live; voice is Amazon-capped shorter)
 DEFAULT_MAX_ESCALATIONS = 5                                      # 5 escalations before auto-skip
 DEFAULT_EARLIEST_RETRY_TIME = "10:00"                            # Restart at 10 AM after auto-skip
 DEFAULT_ACTIONABLE = True                                        # Actionable by default

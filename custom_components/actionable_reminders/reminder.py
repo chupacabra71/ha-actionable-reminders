@@ -65,6 +65,7 @@ from .const import (
     CONF_ACTIONABLE,
     CONF_ESCALATION_VOLUME,
     CONF_RETRY_INTERVAL,
+    CONF_RESPONSE_WINDOW,
     CONF_MAX_RETRIES,
     CONF_ESCALATION_INTERVAL,
     CONF_MAX_ESCALATIONS,
@@ -81,6 +82,7 @@ from .const import (
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
+    CONF_DEFAULT_RESPONSE_WINDOW,
     CONF_DEFAULT_MAX_ESCALATIONS,
     CONF_EARLIEST_RETRY_TIME,
     CONF_DEFAULT_MOBILE_SERVICE,
@@ -103,6 +105,7 @@ from .const import (
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
+    DEFAULT_RESPONSE_WINDOW,
     DEFAULT_MAX_ESCALATIONS,
     DEFAULT_EARLIEST_RETRY_TIME,
     DEFAULT_ACTIONABLE,
@@ -290,6 +293,13 @@ class ReminderRunner:
         self.max_escalations = config.get(
             CONF_MAX_ESCALATIONS,
             self._hub_config.get(CONF_DEFAULT_MAX_ESCALATIONS, DEFAULT_MAX_ESCALATIONS)
+        )
+        # Minutes to keep the actionable response window open: per-reminder
+        # override, else hub default, else module default. A falsy override
+        # (unset/0) inherits the hub value.
+        self.response_window = (
+            config.get(CONF_RESPONSE_WINDOW)
+            or self._hub_config.get(CONF_DEFAULT_RESPONSE_WINDOW, DEFAULT_RESPONSE_WINDOW)
         )
         self.earliest_retry_time = self._hub_config.get(
             CONF_EARLIEST_RETRY_TIME,
@@ -1399,10 +1409,11 @@ class ReminderRunner:
             "title": "🔔 Reminder",
             "message": message,
             "tag": f"ar_{self.entry_id}",
-            # Keep the mobile Done/Not-yet buttons live for 15 min. Alexa's voice
-            # window is Amazon-capped at ~30-60s regardless (it returns its own
-            # "no response" at that point); this just widens the app path.
-            "timeout": "00:15:00",
+            # Keep the mobile Done/Not-yet buttons live for the response window
+            # (tunable: per-reminder override -> hub default -> 15 min). Alexa's
+            # voice window is Amazon-capped at ~30-60s regardless; the switchboard
+            # keeps the app path open for the remainder after a voice no-answer.
+            "timeout": {"minutes": int(self.response_window)},
         }
         # Target a configured Echo if one is set; otherwise let the notification
         # script choose its own default device.

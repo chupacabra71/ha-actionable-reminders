@@ -53,6 +53,7 @@ from .const import (
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
+    CONF_DEFAULT_RESPONSE_WINDOW,
     CONF_DEFAULT_MAX_ESCALATIONS,
     CONF_EARLIEST_RETRY_TIME,
     CONF_DEFAULT_MOBILE_SERVICE,
@@ -65,6 +66,7 @@ from .const import (
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
+    DEFAULT_RESPONSE_WINDOW,
     DEFAULT_MAX_ESCALATIONS,
     DEFAULT_EARLIEST_RETRY_TIME,
     DEFAULT_ACTIONABLE,
@@ -165,6 +167,14 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
                 CONF_DEFAULT_MAX_ESCALATIONS,
                 default=current_data.get(CONF_DEFAULT_MAX_ESCALATIONS, DEFAULT_MAX_ESCALATIONS)
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
+
+            # How long the actionable response window stays open (mobile buttons
+            # live; voice is Amazon-capped shorter). Per-reminder override lives
+            # in the reminder wizard.
+            vol.Required(
+                CONF_DEFAULT_RESPONSE_WINDOW,
+                default=current_data.get(CONF_DEFAULT_RESPONSE_WINDOW, DEFAULT_RESPONSE_WINDOW)
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
             
             vol.Required(
                 CONF_EARLIEST_RETRY_TIME,
