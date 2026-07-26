@@ -122,6 +122,7 @@ from .const import (
     DEFAULT_ENABLED,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
+    DEFAULT_NO_ANSWER_MESSAGES,
     DEFAULT_QUESTION_PHRASES,
     DEFAULT_BIRTHDAY_QUESTION_PHRASES,
     DEFAULT_RESPONSE_HINT,
@@ -261,6 +262,7 @@ class ReminderRunner:
         # override can be reintroduced later if a reminder ever needs bespoke text.
         self.ack_messages = DEFAULT_ACK_MESSAGES
         self.dismiss_messages = DEFAULT_DISMISS_MESSAGES
+        self.no_answer_messages = DEFAULT_NO_ANSWER_MESSAGES
         
         # Notification settings (use hub defaults if not specified)
         self.mobile_service = config.get(
@@ -1447,6 +1449,9 @@ class ReminderRunner:
                             "data": {"entry_id": self.entry_id},
                         }
                     ],
+                    # Rotating "left it on your phone" line the switchboard speaks
+                    # when Alexa gets no usable answer but the phone is still live.
+                    "no_answer_feedback": random.choice(self.no_answer_messages),
                 }
             )
             # A spoken duration ("snooze two hours") makes the Alexa skill fire
