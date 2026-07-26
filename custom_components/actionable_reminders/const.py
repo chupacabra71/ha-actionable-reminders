@@ -273,6 +273,28 @@ DEFAULT_REPROMPT_MESSAGES = [
     "Let us try again - say yes, no, skip, or snooze.",
 ]
 
+# Spoken when a reminder is snoozed by voice ("later"/"snooze") - {when} is the
+# humanized delay (e.g. "an hour"). Rotated.
+DEFAULT_SNOOZE_MESSAGES = [
+    "Okay, I'll remind you in {when}.",
+    "Sure, I'll check back in {when}.",
+    "No problem, I'll give you {when}.",
+    "Alright, I'll nudge you again in {when}.",
+    "Got it, I'll come back in {when}.",
+    "Sounds good, I'll ask again in {when}.",
+]
+
+# Spoken when a reminder occurrence is skipped by voice ("skip it") - it stands
+# down for this occurrence and returns at the next scheduled due date. Rotated.
+DEFAULT_SKIP_MESSAGES = [
+    "Okay, skipping this one. I'll remind you next time it's due.",
+    "No problem, I'll skip it and catch you at the next one.",
+    "Sure, letting this one go - see you next time it's due.",
+    "Alright, skipped. I'll be back when it's next due.",
+    "Got it, we'll skip it this time.",
+    "Okay, I'll pass on this one and remind you next time it comes around.",
+]
+
 # Weekday mapping
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 WEEKDAY_LABELS = {

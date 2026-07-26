@@ -131,6 +131,8 @@ from .const import (
     DEFAULT_DISMISS_MESSAGES,
     DEFAULT_NO_ANSWER_MESSAGES,
     DEFAULT_REPROMPT_MESSAGES,
+    DEFAULT_SNOOZE_MESSAGES,
+    DEFAULT_SKIP_MESSAGES,
     DEFAULT_QUESTION_PHRASES,
     DEFAULT_BIRTHDAY_QUESTION_PHRASES,
     DEFAULT_RESPONSE_HINT,
@@ -272,6 +274,8 @@ class ReminderRunner:
         self.dismiss_messages = DEFAULT_DISMISS_MESSAGES
         self.no_answer_messages = DEFAULT_NO_ANSWER_MESSAGES
         self.reprompt_messages = DEFAULT_REPROMPT_MESSAGES
+        self.snooze_messages = DEFAULT_SNOOZE_MESSAGES
+        self.skip_messages = DEFAULT_SKIP_MESSAGES
         
         # Notification settings (use hub defaults if not specified)
         self.mobile_service = config.get(
@@ -1168,6 +1172,18 @@ class ReminderRunner:
         jittered = target * random.uniform(1 - DEFAULT_NAG_JITTER, 1 + DEFAULT_NAG_JITTER)
         return max(DEFAULT_NAG_MIN_GAP, min(DEFAULT_NAG_MAX_GAP, jittered))
 
+    @staticmethod
+    def _humanize_duration(td: timedelta) -> str:
+        """Speakable duration, e.g. 'an hour', '2 hours', '30 minutes'."""
+        mins = int(td.total_seconds() // 60)
+        if mins < 60:
+            return "a minute" if mins == 1 else f"{mins} minutes"
+        hours = mins / 60
+        if abs(hours - round(hours)) < 0.1:
+            h = round(hours)
+            return "an hour" if h == 1 else f"{h} hours"
+        return f"{hours:.1f} hours"
+
     def _past_earliest_retry_time(self, now: datetime) -> bool:
         """Check if we're past the earliest retry time for a new day."""
         earliest = dt_time(*_time_parts(self.earliest_retry_time, (10, 0)))
@@ -1746,6 +1762,7 @@ class ReminderRunner:
 
         await self._save_state()
         await self._record_journal("skip", context, source)
+        await self._send_ack(random.choice(self.skip_messages))
 
         # Notify switch entity
         async_dispatcher_send(
@@ -1791,6 +1808,11 @@ class ReminderRunner:
         self._state[STATE_ESCALATIONS_TODAY] = 0
         await self._save_state()
         await self._record_journal("snooze", context, source)
+        await self._send_ack(
+            random.choice(self.snooze_messages).format(
+                when=self._humanize_duration(duration)
+            )
+        )
         _LOGGER.info("Reminder %s snoozed until %s", self.name, until.isoformat())
         async_dispatcher_send(
             self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
