@@ -102,10 +102,17 @@ from .const import (
     STATE_ACCUM_BASELINE,
     STATE_SNOOZE_UNTIL,
     STATE_RESCHEDULE_DATE,
+    STATE_REPROMPT_COUNT,
+    STATE_NEXT_NAG_MINUTES,
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
     DEFAULT_RESPONSE_WINDOW,
+    DEFAULT_NAG_MIN_GAP,
+    DEFAULT_NAG_MAX_GAP,
+    DEFAULT_NAG_FRACTION,
+    DEFAULT_NAG_JITTER,
+    DEFAULT_MAX_REPROMPTS,
     DEFAULT_MAX_ESCALATIONS,
     DEFAULT_EARLIEST_RETRY_TIME,
     DEFAULT_ACTIONABLE,
@@ -123,6 +130,7 @@ from .const import (
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
     DEFAULT_NO_ANSWER_MESSAGES,
+    DEFAULT_REPROMPT_MESSAGES,
     DEFAULT_QUESTION_PHRASES,
     DEFAULT_BIRTHDAY_QUESTION_PHRASES,
     DEFAULT_RESPONSE_HINT,
@@ -263,6 +271,7 @@ class ReminderRunner:
         self.ack_messages = DEFAULT_ACK_MESSAGES
         self.dismiss_messages = DEFAULT_DISMISS_MESSAGES
         self.no_answer_messages = DEFAULT_NO_ANSWER_MESSAGES
+        self.reprompt_messages = DEFAULT_REPROMPT_MESSAGES
         
         # Notification settings (use hub defaults if not specified)
         self.mobile_service = config.get(
@@ -1122,13 +1131,42 @@ class ReminderRunner:
         last_time = datetime.fromisoformat(last_prompt)
         elapsed = (now - last_time).total_seconds() / 60
         
-        # Determine interval based on escalation
-        if self._state[STATE_ESCALATED]:
-            interval = self.escalation_interval
-        else:
-            interval = self.retry_interval
-        
+        # Adaptive jittered gap picked at the last prompt (compresses toward quiet
+        # hours); fall back to the fixed retry/escalation interval if unset.
+        interval = self._state.get(STATE_NEXT_NAG_MINUTES)
+        if not interval:
+            interval = (
+                self.escalation_interval
+                if self._state[STATE_ESCALATED]
+                else self.retry_interval
+            )
+
         return elapsed >= interval
+
+    def _minutes_until_quiet(self, now: datetime) -> float | None:
+        """Minutes from now until the next quiet-hours start, or None if unset."""
+        if not self.quiet_start:
+            return None
+        h, m = _time_parts(self.quiet_start)
+        qs = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if qs <= now:
+            qs += timedelta(days=1)
+        return (qs - now).total_seconds() / 60
+
+    def _compute_nag_gap(self, now: datetime) -> float:
+        """Adaptive, jittered minutes until the next nag.
+
+        Far from the quiet-hours cutoff the gap is a randomized ~1-2h; as the
+        cutoff nears it shrinks toward the floor (a final flurry), never closer
+        than MIN or wider than MAX. With no quiet hours set it is a plain
+        jittered MIN..MAX.
+        """
+        remaining = self._minutes_until_quiet(now)
+        if not remaining or remaining <= 0:
+            return random.uniform(DEFAULT_NAG_MIN_GAP, DEFAULT_NAG_MAX_GAP)
+        target = remaining * DEFAULT_NAG_FRACTION
+        jittered = target * random.uniform(1 - DEFAULT_NAG_JITTER, 1 + DEFAULT_NAG_JITTER)
+        return max(DEFAULT_NAG_MIN_GAP, min(DEFAULT_NAG_MAX_GAP, jittered))
 
     def _past_earliest_retry_time(self, now: datetime) -> bool:
         """Check if we're past the earliest retry time for a new day."""
@@ -1368,6 +1406,10 @@ class ReminderRunner:
 
         # Update state
         self._state[STATE_LAST_PROMPT] = now.isoformat()
+        # Fresh prompt cycle: clear voice-clarification reprompts and pick the
+        # adaptive, jittered gap before the next nag (compresses toward quiet hours).
+        self._state[STATE_REPROMPT_COUNT] = 0
+        self._state[STATE_NEXT_NAG_MINUTES] = self._compute_nag_gap(now)
         if self._state[STATE_ESCALATED]:
             self._state[STATE_ESCALATIONS_TODAY] += 1
         else:
@@ -1452,6 +1494,14 @@ class ReminderRunner:
                     # Rotating "left it on your phone" line the switchboard speaks
                     # when Alexa gets no usable answer but the phone is still live.
                     "no_answer_feedback": random.choice(self.no_answer_messages),
+                    # Any free-text spoken reply (Alexa ResponseString) is routed
+                    # by handle_response: "skip", "done", "later", etc.
+                    "string_action": [
+                        {
+                            "action": f"{DOMAIN}.handle_response",
+                            "data": {"entry_id": self.entry_id},
+                        }
+                    ],
                 }
             )
             # A spoken duration ("snooze two hours") makes the Alexa skill fire
@@ -1745,6 +1795,51 @@ class ReminderRunner:
         async_dispatcher_send(
             self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
         )
+
+    async def async_handle_voice_response(
+        self, text: str, context: Context | None = None, source: str = "voice"
+    ) -> None:
+        """Route a free-text spoken reply (Alexa ResponseString) to an action.
+
+        The switchboard forwards whatever was said; keyword matching maps it to
+        skip / done / snooze / dismiss. Anything unrecognized re-prompts (capped),
+        so a mumble gets a clarification rather than silently doing nothing.
+        """
+        t = (text or "").lower().strip()
+        _LOGGER.info("Voice reply for %s: %r", self.name, t)
+        SKIP = ("skip", "not today", "not this")
+        DONE = ("done", "did it", "already", "finished", "complete", "handled", "taken care")
+        SNOOZE = ("snooze", "later", "in a bit", "in a while", "a bit", "hour", "remind me", "hold on", "busy", "soon")
+        DISMISS = ("no", "not yet", "not now", "nope", "stop")
+        if any(w in t for w in SKIP):
+            self._state[STATE_REPROMPT_COUNT] = 0
+            await self.async_skip_today(context=context, source=source)
+        elif any(w in t for w in DONE):
+            self._state[STATE_REPROMPT_COUNT] = 0
+            await self.async_mark_done(context=context, source=source)
+        elif any(w in t for w in SNOOZE):
+            self._state[STATE_REPROMPT_COUNT] = 0
+            await self.async_snooze(timedelta(hours=1), context=context, source=source)
+        elif any(w in t for w in DISMISS):
+            self._state[STATE_REPROMPT_COUNT] = 0
+            await self.async_dismiss(context=context, source=source)
+        else:
+            await self.async_reprompt(context=context)
+
+    async def async_reprompt(self, context: Context | None = None) -> None:
+        """Re-ask with a clarification when a reply was not understood (capped)."""
+        count = self._state.get(STATE_REPROMPT_COUNT, 0) + 1
+        if count > DEFAULT_MAX_REPROMPTS:
+            self._state[STATE_REPROMPT_COUNT] = 0
+            _LOGGER.info("Reprompt limit reached for %s - treating as not-yet", self.name)
+            await self.async_dismiss(context=context, source="voice")
+            return
+        self._state[STATE_REPROMPT_COUNT] = count
+        await self._save_state()
+        msg = random.choice(self.reprompt_messages)
+        _LOGGER.info("Reprompt %s/%s for %s", count, DEFAULT_MAX_REPROMPTS, self.name)
+        if self._use_unified_notifications():
+            await self._send_via_unified_notifications(msg, 0.6)
 
     async def async_reschedule_next(
         self,

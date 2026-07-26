@@ -158,6 +158,8 @@ STATE_RESET_DAY = "reset_day"                                    # Date (YYYY-MM
 STATE_ACCUM_BASELINE = "accumulator_baseline"                    # Source value captured at last completion (accumulator mode)
 STATE_SNOOZE_UNTIL = "snooze_until"                              # ISO datetime; not due before this (snooze)
 STATE_RESCHEDULE_DATE = "reschedule_date"                        # ISO date; overrides the next occurrence (reschedule_next)
+STATE_REPROMPT_COUNT = "reprompt_count"                          # Voice-clarification reprompts used this cycle
+STATE_NEXT_NAG_MINUTES = "next_nag_minutes"                      # Adaptive minutes until the next nag (picked per prompt)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -169,6 +171,14 @@ DEFAULT_RETRY_INTERVAL = 30                                      # 30 minutes
 DEFAULT_MAX_RETRIES = 5                                          # 5 retries before escalation
 DEFAULT_ESCALATION_INTERVAL = 15                                 # 15 minutes during escalation
 DEFAULT_RESPONSE_WINDOW = 15                                      # Minutes to keep the actionable response window open (mobile buttons live; voice is Amazon-capped shorter)
+# Adaptive nag timing: the gap before the next nag is a jittered fraction of the
+# time left until quiet hours, so nags spread out early (1-2h, randomized) and
+# compress toward the cutoff. Never closer than MIN, never wider than MAX.
+DEFAULT_NAG_MIN_GAP = 30                                          # minutes - floor between nags
+DEFAULT_NAG_MAX_GAP = 120                                         # minutes - ceiling between nags
+DEFAULT_NAG_FRACTION = 0.35                                       # gap ~= this fraction of the time until quiet
+DEFAULT_NAG_JITTER = 0.3                                          # +/- randomness applied to the gap
+DEFAULT_MAX_REPROMPTS = 2                                         # voice clarifications before giving up for the cycle
 DEFAULT_MAX_ESCALATIONS = 5                                      # 5 escalations before auto-skip
 DEFAULT_EARLIEST_RETRY_TIME = "10:00"                            # Restart at 10 AM after auto-skip
 DEFAULT_ACTIONABLE = True                                        # Actionable by default
@@ -213,7 +223,7 @@ DEFAULT_BIRTHDAY_QUESTION_PHRASES = [
 ]
 # Response cue appended after the question on actionable prompts so people
 # answer yes/no (the only replies the Alexa actionable skill understands).
-DEFAULT_RESPONSE_HINT = "Just say yes or no."
+DEFAULT_RESPONSE_HINT = "Say yes, no, skip, or snooze."
 
 # Spoken (and mobile) confirmation after a completion — rotated for variety.
 DEFAULT_ACK_MESSAGES = [
@@ -253,6 +263,14 @@ DEFAULT_NO_ANSWER_MESSAGES = [
     "Got it — it's waiting on your phone.",
     "Okay, I'll leave it on your phone for now.",
     "Alright, check your phone whenever you're ready.",
+]
+
+# Spoken when a reply is not understood - re-opens the mic for another try. Rotated.
+DEFAULT_REPROMPT_MESSAGES = [
+    "Sorry, I did not catch that. You can say yes, no, skip, or snooze.",
+    "Hmm, I missed that - say yes, no, skip, or snooze.",
+    "I did not get that one. Yes, no, skip, or snooze?",
+    "Let us try again - say yes, no, skip, or snooze.",
 ]
 
 # Weekday mapping
