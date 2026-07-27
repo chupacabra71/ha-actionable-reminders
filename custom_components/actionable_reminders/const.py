@@ -128,6 +128,9 @@ CONF_ESCALATION_VOLUME = "escalation_volume"                     # Volume during
 # Retry and escalation (can override hub defaults)
 CONF_RETRY_INTERVAL = "retry_interval"                           # Minutes between retries
 CONF_RESPONSE_WINDOW = "response_window"                          # Per-reminder override: minutes to keep the response window open (blank = inherit hub default)
+CONF_NAG_MIN_GAP = "nag_min_gap"                                  # Per-reminder override: floor minutes between nags (blank = inherit hub)
+CONF_NAG_MAX_GAP = "nag_max_gap"                                  # Per-reminder override: ceiling minutes between nags (blank = inherit hub)
+CONF_NAG_FRACTION = "nag_fraction"                                # Per-reminder override: nag gap as fraction of time-until-quiet (blank = inherit hub)
 CONF_MAX_RETRIES = "max_retries"                                 # Retries before escalation
 CONF_ESCALATION_INTERVAL = "escalation_interval"                 # Minutes between escalated retries
 CONF_MAX_ESCALATIONS = "max_escalations"                         # Escalations before auto-skip

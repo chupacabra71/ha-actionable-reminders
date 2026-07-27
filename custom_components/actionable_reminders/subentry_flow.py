@@ -60,6 +60,9 @@ from .const import (
     CONF_ESCALATION_INTERVAL,
     CONF_MAX_ESCALATIONS,
     CONF_RESPONSE_WINDOW,
+    CONF_NAG_MIN_GAP,
+    CONF_NAG_MAX_GAP,
+    CONF_NAG_FRACTION,
     CONF_PRESENCE_SENSORS,
     CONF_CATCHUP_ON_ARRIVAL,
     CONF_QUIET_START,
@@ -565,6 +568,15 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 CONF_RESPONSE_WINDOW, description={"suggested_value": d.get(CONF_RESPONSE_WINDOW)}
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
             vol.Optional(
+                CONF_NAG_MIN_GAP, description={"suggested_value": d.get(CONF_NAG_MIN_GAP)}
+            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+            vol.Optional(
+                CONF_NAG_MAX_GAP, description={"suggested_value": d.get(CONF_NAG_MAX_GAP)}
+            ): vol.All(vol.Coerce(int), vol.Range(min=15, max=240)),
+            vol.Optional(
+                CONF_NAG_FRACTION, description={"suggested_value": d.get(CONF_NAG_FRACTION)}
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=0.9)),
+            vol.Optional(
                 CONF_PRESENCE_SENSORS, default=d.get(CONF_PRESENCE_SENSORS, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
@@ -659,7 +671,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         for key in (
             CONF_NAG, CONF_MANDATORY, CONF_ALLOW_CRITICAL, CONF_OPTIONAL, CONF_UNTIL_DONE, CONF_LEAD_TIMES,
             CONF_MOBILE_SERVICE, CONF_ALEXA_DEVICES, CONF_ACTIONABLE, CONF_ESCALATION_VOLUME,
-            CONF_RETRY_INTERVAL, CONF_MAX_RETRIES, CONF_ESCALATION_INTERVAL, CONF_MAX_ESCALATIONS, CONF_RESPONSE_WINDOW,
+            CONF_RETRY_INTERVAL, CONF_MAX_RETRIES, CONF_ESCALATION_INTERVAL, CONF_MAX_ESCALATIONS, CONF_RESPONSE_WINDOW, CONF_NAG_MIN_GAP, CONF_NAG_MAX_GAP, CONF_NAG_FRACTION,
             CONF_PRESENCE_SENSORS, CONF_CATCHUP_ON_ARRIVAL, CONF_QUIET_START, CONF_QUIET_END,
             CONF_ON_COMPLETE,
         ):

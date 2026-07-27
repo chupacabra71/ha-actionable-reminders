@@ -66,6 +66,9 @@ from .const import (
     CONF_ESCALATION_VOLUME,
     CONF_RETRY_INTERVAL,
     CONF_RESPONSE_WINDOW,
+    CONF_NAG_MIN_GAP,
+    CONF_NAG_MAX_GAP,
+    CONF_NAG_FRACTION,
     CONF_MAX_RETRIES,
     CONF_ESCALATION_INTERVAL,
     CONF_MAX_ESCALATIONS,
@@ -325,9 +328,9 @@ class ReminderRunner:
         )
         # Adaptive-nag knobs (hub-configurable): floor/ceiling minutes between
         # nags and the fraction-of-time-until-quiet the gap targets.
-        self.nag_min_gap = self._hub_config.get(CONF_DEFAULT_NAG_MIN_GAP, DEFAULT_NAG_MIN_GAP)
-        self.nag_max_gap = self._hub_config.get(CONF_DEFAULT_NAG_MAX_GAP, DEFAULT_NAG_MAX_GAP)
-        self.nag_fraction = self._hub_config.get(CONF_DEFAULT_NAG_FRACTION, DEFAULT_NAG_FRACTION)
+        self.nag_min_gap = config.get(CONF_NAG_MIN_GAP) or self._hub_config.get(CONF_DEFAULT_NAG_MIN_GAP, DEFAULT_NAG_MIN_GAP)
+        self.nag_max_gap = config.get(CONF_NAG_MAX_GAP) or self._hub_config.get(CONF_DEFAULT_NAG_MAX_GAP, DEFAULT_NAG_MAX_GAP)
+        self.nag_fraction = config.get(CONF_NAG_FRACTION) or self._hub_config.get(CONF_DEFAULT_NAG_FRACTION, DEFAULT_NAG_FRACTION)
         self.earliest_retry_time = self._hub_config.get(
             CONF_EARLIEST_RETRY_TIME,
             DEFAULT_EARLIEST_RETRY_TIME
