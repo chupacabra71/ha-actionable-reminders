@@ -54,6 +54,9 @@ from .const import (
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
     CONF_DEFAULT_RESPONSE_WINDOW,
+    CONF_DEFAULT_NAG_MIN_GAP,
+    CONF_DEFAULT_NAG_MAX_GAP,
+    CONF_DEFAULT_NAG_FRACTION,
     CONF_DEFAULT_MAX_ESCALATIONS,
     CONF_EARLIEST_RETRY_TIME,
     CONF_DEFAULT_MOBILE_SERVICE,
@@ -67,6 +70,9 @@ from .const import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
     DEFAULT_RESPONSE_WINDOW,
+    DEFAULT_NAG_MIN_GAP,
+    DEFAULT_NAG_MAX_GAP,
+    DEFAULT_NAG_FRACTION,
     DEFAULT_MAX_ESCALATIONS,
     DEFAULT_EARLIEST_RETRY_TIME,
     DEFAULT_ACTIONABLE,
@@ -175,6 +181,23 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
                 CONF_DEFAULT_RESPONSE_WINDOW,
                 default=current_data.get(CONF_DEFAULT_RESPONSE_WINDOW, DEFAULT_RESPONSE_WINDOW)
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+
+            # Adaptive-nag timing: gap floor/ceiling (minutes) and the fraction of
+            # time-until-quiet each nag targets (nags compress toward the cutoff).
+            vol.Required(
+                CONF_DEFAULT_NAG_MIN_GAP,
+                default=current_data.get(CONF_DEFAULT_NAG_MIN_GAP, DEFAULT_NAG_MIN_GAP)
+            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+
+            vol.Required(
+                CONF_DEFAULT_NAG_MAX_GAP,
+                default=current_data.get(CONF_DEFAULT_NAG_MAX_GAP, DEFAULT_NAG_MAX_GAP)
+            ): vol.All(vol.Coerce(int), vol.Range(min=15, max=240)),
+
+            vol.Required(
+                CONF_DEFAULT_NAG_FRACTION,
+                default=current_data.get(CONF_DEFAULT_NAG_FRACTION, DEFAULT_NAG_FRACTION)
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=0.9)),
             
             vol.Required(
                 CONF_EARLIEST_RETRY_TIME,

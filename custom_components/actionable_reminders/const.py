@@ -60,6 +60,9 @@ CONF_DEFAULT_RETRY_INTERVAL = "default_retry_interval"           # Minutes betwe
 CONF_DEFAULT_MAX_RETRIES = "default_max_retries"                 # Retries before escalation
 CONF_DEFAULT_ESCALATION_INTERVAL = "default_escalation_interval" # Minutes between escalated retries
 CONF_DEFAULT_RESPONSE_WINDOW = "default_response_window"          # Hub-level: minutes to keep the actionable response window open
+CONF_DEFAULT_NAG_MIN_GAP = "default_nag_min_gap"                  # Hub: floor minutes between nags
+CONF_DEFAULT_NAG_MAX_GAP = "default_nag_max_gap"                  # Hub: ceiling minutes between nags
+CONF_DEFAULT_NAG_FRACTION = "default_nag_fraction"               # Hub: nag gap as a fraction of time-until-quiet
 CONF_DEFAULT_MAX_ESCALATIONS = "default_max_escalations"         # Escalations before auto-skip
 CONF_EARLIEST_RETRY_TIME = "earliest_retry_time"                 # Time to restart after auto-skip (HH:MM)
 

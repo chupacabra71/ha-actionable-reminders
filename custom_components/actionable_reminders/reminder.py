@@ -83,6 +83,9 @@ from .const import (
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
     CONF_DEFAULT_RESPONSE_WINDOW,
+    CONF_DEFAULT_NAG_MIN_GAP,
+    CONF_DEFAULT_NAG_MAX_GAP,
+    CONF_DEFAULT_NAG_FRACTION,
     CONF_DEFAULT_MAX_ESCALATIONS,
     CONF_EARLIEST_RETRY_TIME,
     CONF_DEFAULT_MOBILE_SERVICE,
@@ -320,6 +323,11 @@ class ReminderRunner:
             config.get(CONF_RESPONSE_WINDOW)
             or self._hub_config.get(CONF_DEFAULT_RESPONSE_WINDOW, DEFAULT_RESPONSE_WINDOW)
         )
+        # Adaptive-nag knobs (hub-configurable): floor/ceiling minutes between
+        # nags and the fraction-of-time-until-quiet the gap targets.
+        self.nag_min_gap = self._hub_config.get(CONF_DEFAULT_NAG_MIN_GAP, DEFAULT_NAG_MIN_GAP)
+        self.nag_max_gap = self._hub_config.get(CONF_DEFAULT_NAG_MAX_GAP, DEFAULT_NAG_MAX_GAP)
+        self.nag_fraction = self._hub_config.get(CONF_DEFAULT_NAG_FRACTION, DEFAULT_NAG_FRACTION)
         self.earliest_retry_time = self._hub_config.get(
             CONF_EARLIEST_RETRY_TIME,
             DEFAULT_EARLIEST_RETRY_TIME
@@ -1171,10 +1179,10 @@ class ReminderRunner:
         """
         remaining = self._minutes_until_quiet(now)
         if not remaining or remaining <= 0:
-            return random.uniform(DEFAULT_NAG_MIN_GAP, DEFAULT_NAG_MAX_GAP)
-        target = remaining * DEFAULT_NAG_FRACTION
+            return random.uniform(self.nag_min_gap, self.nag_max_gap)
+        target = remaining * self.nag_fraction
         jittered = target * random.uniform(1 - DEFAULT_NAG_JITTER, 1 + DEFAULT_NAG_JITTER)
-        return max(DEFAULT_NAG_MIN_GAP, min(DEFAULT_NAG_MAX_GAP, jittered))
+        return max(self.nag_min_gap, min(self.nag_max_gap, jittered))
 
     @staticmethod
     def _humanize_duration(td: timedelta) -> str:
