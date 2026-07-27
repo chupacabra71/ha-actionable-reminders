@@ -133,6 +133,7 @@ from .const import (
     DEFAULT_REPROMPT_MESSAGES,
     DEFAULT_SNOOZE_MESSAGES,
     DEFAULT_SKIP_MESSAGES,
+    DEFAULT_RESCHEDULE_MESSAGES,
     DEFAULT_QUESTION_PHRASES,
     DEFAULT_BIRTHDAY_QUESTION_PHRASES,
     DEFAULT_RESPONSE_HINT,
@@ -276,6 +277,7 @@ class ReminderRunner:
         self.reprompt_messages = DEFAULT_REPROMPT_MESSAGES
         self.snooze_messages = DEFAULT_SNOOZE_MESSAGES
         self.skip_messages = DEFAULT_SKIP_MESSAGES
+        self.reschedule_messages = DEFAULT_RESCHEDULE_MESSAGES
         
         # Notification settings (use hub defaults if not specified)
         self.mobile_service = config.get(
@@ -1184,6 +1186,21 @@ class ReminderRunner:
             return "an hour" if h == 1 else f"{h} hours"
         return f"{hours:.1f} hours"
 
+    def _humanize_date(self, iso_date: str) -> str:
+        """Speakable date, e.g. 'today', 'tomorrow', 'Friday', 'July 31'."""
+        try:
+            d = date.fromisoformat(iso_date)
+        except (TypeError, ValueError):
+            return iso_date
+        delta = (d - dt_util.now().date()).days
+        if delta == 0:
+            return "today"
+        if delta == 1:
+            return "tomorrow"
+        if 2 <= delta <= 6:
+            return d.strftime("%A")
+        return f"{d.strftime('%B')} {d.day}"
+
     def _past_earliest_retry_time(self, now: datetime) -> bool:
         """Check if we're past the earliest retry time for a new day."""
         earliest = dt_time(*_time_parts(self.earliest_retry_time, (10, 0)))
@@ -1515,6 +1532,13 @@ class ReminderRunner:
                     "string_action": [
                         {
                             "action": f"{DOMAIN}.handle_response",
+                            "data": {"entry_id": self.entry_id},
+                        }
+                    ],
+                    # A spoken date ("remind me Friday") moves the next due date.
+                    "datetime_action": [
+                        {
+                            "action": f"{DOMAIN}.handle_datetime",
                             "data": {"entry_id": self.entry_id},
                         }
                     ],
@@ -1863,6 +1887,16 @@ class ReminderRunner:
         if self._use_unified_notifications():
             await self._send_via_unified_notifications(msg, 0.6)
 
+    async def async_handle_datetime_response(
+        self, dt: dict | None, context: Context | None = None, source: str = "voice"
+    ) -> None:
+        """Reschedule to a spoken date (Alexa ResponseDateTime)."""
+        date_str = dt.get("date") if isinstance(dt, dict) else None
+        if not date_str:
+            _LOGGER.info("Datetime reply for %s had no usable date: %r", self.name, dt)
+            return
+        await self.async_reschedule_next(date_str, context=context, source=source)
+
     async def async_reschedule_next(
         self,
         new_date: str,
@@ -1886,6 +1920,11 @@ class ReminderRunner:
         self._state[STATE_RESCHEDULE_DATE] = new_date
         await self._save_state()
         await self._record_journal("reschedule", context, source)
+        await self._send_ack(
+            random.choice(self.reschedule_messages).format(
+                when=self._humanize_date(new_date)
+            )
+        )
         _LOGGER.info("Reminder %s rescheduled to %s", self.name, new_date)
         async_dispatcher_send(
             self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)

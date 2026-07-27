@@ -294,3 +294,29 @@ handle_response:
       required: false
       selector:
         text:
+
+handle_datetime:
+  name: Handle Voice Date
+  description: >-
+    Reschedule a reminder to a spoken date (Alexa ResponseDateTime), e.g.
+    "remind me Friday". Normally called by the notification switchboard.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The reminder's entry_id.
+      required: true
+      example: "01ABC..."
+      selector:
+        text:
+    datetime:
+      name: Date/time object
+      description: The parsed date object injected by the switchboard.
+      required: false
+      selector:
+        object:
+    source:
+      name: Source
+      description: Optional audit-journal label.
+      required: false
+      selector:
+        text:

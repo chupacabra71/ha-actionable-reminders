@@ -436,6 +436,19 @@ async def _register_services(hass: HomeAssistant) -> None:
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
 
+    async def handle_datetime(call: ServiceCall) -> None:
+        """Reschedule a reminder to a spoken date (Alexa ResponseDateTime)."""
+        entry_id = call.data.get("entry_id")
+        runner = _get_runner_by_id(hass, entry_id)
+        if runner:
+            await runner.async_handle_datetime_response(
+                call.data.get("datetime"),
+                context=call.context,
+                source=call.data.get("source", "voice"),
+            )
+        else:
+            _LOGGER.error("Reminder not found: %s", entry_id)
+
     async def handle_reschedule(call: ServiceCall) -> None:
         """Move a scheduled reminder's next due date."""
         entry_id = call.data.get("entry_id")
@@ -609,6 +622,17 @@ async def _register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema({
             vol.Required("entry_id"): cv.string,
             vol.Optional("text"): cv.string,
+            vol.Optional("source"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        "handle_datetime",
+        handle_datetime,
+        schema=vol.Schema({
+            vol.Required("entry_id"): cv.string,
+            vol.Optional("datetime"): dict,
             vol.Optional("source"): cv.string,
         }),
     )

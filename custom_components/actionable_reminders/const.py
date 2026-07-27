@@ -295,6 +295,16 @@ DEFAULT_SKIP_MESSAGES = [
     "Okay, I'll pass on this one and remind you next time it comes around.",
 ]
 
+# Spoken when a reminder is moved to a spoken date ("remind me Friday") - {when}
+# is the humanized date (e.g. "Friday", "July 31"). Rotated.
+DEFAULT_RESCHEDULE_MESSAGES = [
+    "Okay, I'll remind you on {when}.",
+    "Sure, moved to {when}.",
+    "No problem, I'll bring it up on {when}.",
+    "Got it, rescheduled to {when}.",
+    "Alright, I'll wait until {when}.",
+]
+
 # Weekday mapping
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 WEEKDAY_LABELS = {
