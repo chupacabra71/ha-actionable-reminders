@@ -48,6 +48,7 @@ SERVICE_CALENDAR_ACK = "calendar_ack"                            # Ack a calenda
 
 # Master switch — global kill switch for ALL reminder/calendar notifications
 CONF_MASTER_ENABLED = "master_enabled"                           # Hub-level: when False, nothing prompts
+CONF_VOICE_RESPONDERS = "voice_responders"                       # Hub-level: "person_id = name" map (Alexa Voice ID) for personalized acks
 SIGNAL_MASTER_UPDATED = f"{DOMAIN}_master_updated"               # Fired when the master switch toggles
 
 

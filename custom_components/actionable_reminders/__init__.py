@@ -16,7 +16,7 @@ from types import MappingProxyType
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -33,6 +33,7 @@ from .const import (
     SUBENTRY_TYPE_REMINDER,
     CONF_REMINDERS_CALENDAR,
     CONF_MASTER_ENABLED,
+    CONF_VOICE_RESPONDERS,
     DEFAULT_MASTER_ENABLED,
     SERVICE_MARK_DONE,
     SERVICE_DISMISS,
@@ -83,6 +84,18 @@ HUB_PLATFORMS = [Platform.TODO, Platform.SWITCH, Platform.SENSOR]
 # ═══════════════════════════════════════════════════════════════════════════════
 # Integration Setup
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _parse_responder_map(text: str) -> dict[str, str]:
+    """Parse 'person_id = name' pairs (comma or newline separated) into a dict."""
+    result: dict[str, str] = {}
+    for line in (text or "").replace(",", "\n").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k and v:
+                result[k] = v
+    return result
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Actionable Reminders integration (YAML not supported).
@@ -147,6 +160,24 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     journal = ReminderJournal(hass)
     await journal.async_load()
     hass.data[DOMAIN]["hub"]["journal"] = journal
+
+    # Remember who Alexa says responded (voice ID), keyed by notification tag, so
+    # acks can name the speaker once a responder map is configured. Harmless until
+    # then - the person id is currently 'none' and the map is empty.
+    hub_data = hass.data[DOMAIN]["hub"]
+    hub_data["responder_map"] = _parse_responder_map(entry.data.get(CONF_VOICE_RESPONDERS, ""))
+    hub_data["responders"] = {}
+
+    @callback
+    def _remember_responder(event) -> None:
+        pid = event.data.get("event_person_id")
+        eid = event.data.get("event_id")
+        if pid and eid:
+            hub_data["responders"][eid] = (pid, dt_util.utcnow())
+
+    entry.async_on_unload(
+        hass.bus.async_listen("alexa_actionable_notification", _remember_responder)
+    )
 
     # Register integration services
     await _register_services(hass)

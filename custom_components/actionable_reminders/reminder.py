@@ -1979,6 +1979,22 @@ class ReminderRunner:
     # Helper Methods
     # ────────────────────────────────────────────────────────────────────────────
 
+    def _resolve_responder(self) -> str | None:
+        """Name of whoever Alexa said last responded to this reminder (voice ID).
+
+        None when no recent responder is cached or the person id isn't in the
+        hub's responder map, so acks stay generic until Alexa Voice ID is set up
+        and the map is filled in.
+        """
+        hub = self.hass.data.get(DOMAIN, {}).get("hub", {})
+        cached = hub.get("responders", {}).get(f"ar_{self.entry_id}")
+        if not cached:
+            return None
+        pid, ts = cached
+        if (dt_util.utcnow() - ts).total_seconds() > 60:
+            return None
+        return hub.get("responder_map", {}).get(pid)
+
     async def _send_ack(self, message: str) -> None:
         """Speak a short confirmation (completion ack / dismiss "remind later").
 
@@ -1987,6 +2003,11 @@ class ReminderRunner:
         alexa_devices still gets spoken feedback. Fall back to a direct Alexa TTS
         only if the script isn't present, keeping the integration shareable.
         """
+        # Personalize with the speaker's name if Alexa identified them (voice ID);
+        # generic otherwise.
+        name = self._resolve_responder()
+        if name:
+            message = f"{name}, {message[:1].lower()}{message[1:]}"
         if self._use_unified_notifications():
             data = {
                 "method": "voice",

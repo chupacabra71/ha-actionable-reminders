@@ -31,6 +31,7 @@ from .const import (
     CONF_DEFAULT_ALEXA_DEVICES,
     CONF_DEFAULT_ACTIONABLE,
     CONF_DEFAULT_PRESENCE_SENSORS,
+    CONF_VOICE_RESPONDERS,
     CONF_DEFAULT_QUIET_START,
     CONF_DEFAULT_QUIET_END,
     DEFAULT_RETRY_INTERVAL,
@@ -84,6 +85,7 @@ class ActionableRemindersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_DEFAULT_MOBILE_SERVICE: None,
             CONF_DEFAULT_ALEXA_DEVICES: [],
             CONF_DEFAULT_PRESENCE_SENSORS: [],
+            CONF_VOICE_RESPONDERS: "",
         }
         return self.async_create_entry(title="Actionable Reminders Hub", data=hub_data)
 

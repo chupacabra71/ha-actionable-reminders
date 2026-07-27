@@ -64,6 +64,7 @@ from .const import (
     CONF_REMINDERS_CALENDAR,
     CONF_DEFAULT_ACTIONABLE,
     CONF_DEFAULT_PRESENCE_SENSORS,
+    CONF_VOICE_RESPONDERS,
     CONF_DEFAULT_QUIET_START,
     CONF_DEFAULT_QUIET_END,
     DEFAULT_RETRY_INTERVAL,
@@ -198,6 +199,12 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
                 CONF_DEFAULT_NAG_FRACTION,
                 default=current_data.get(CONF_DEFAULT_NAG_FRACTION, DEFAULT_NAG_FRACTION)
             ): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=0.9)),
+
+            # Voice-ID responder map: one 'amzn1.ask.person.XXXX = Name' per line.
+            vol.Optional(
+                CONF_VOICE_RESPONDERS,
+                description={"suggested_value": current_data.get(CONF_VOICE_RESPONDERS)},
+            ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
             
             vol.Required(
                 CONF_EARLIEST_RETRY_TIME,
