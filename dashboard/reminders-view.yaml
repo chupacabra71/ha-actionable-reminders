@@ -24,16 +24,18 @@ icon: mdi:bell-ring
 type: sections
 max_columns: 2
 
-header:
-  layout: start
-  card:
-    type: vertical-stack
+sections:
+  # Full-width header row (title + status chips) spanning both columns.
+  - type: grid
+    column_span: 2
     cards:
       - type: markdown
         text_only: true
         content: "## Reminders"
+        grid_options: { columns: full, rows: auto }
       - type: custom:mushroom-chips-card
         alignment: center
+        grid_options: { columns: full, rows: auto }
         chips:
           - type: template
             entity: switch.actionable_reminders_master
@@ -48,11 +50,7 @@ header:
           - type: template
             icon: mdi:alert-decagram
             icon_color: "{{ 'red' if state_attr('sensor.reminders_next_up','count')|int(0) > 0 else 'grey' }}"
-            content: "{{ state_attr('sensor.reminders_next_up','count')|int(0) }} need attention"
-          - type: template
-            icon: mdi:checkbox-marked-circle-outline
-            icon_color: "{{ 'orange' if states('todo.actionable_reminders_reminders')|int(0) > 0 else 'grey' }}"
-            content: "{{ states('todo.actionable_reminders_reminders')|int(0) }} due"
+            content: "{{ state_attr('sensor.reminders_next_up','count')|int(0) }} due now"
           - type: template
             icon: mdi:plus-circle
             icon_color: green
@@ -68,7 +66,6 @@ header:
               action: navigate
               navigation_path: /config/integrations/integration/actionable_reminders
 
-sections:
   # ── Due now: status overdue / due_soon / triggered ──────────────────────────
   - type: grid
     column_span: 1
