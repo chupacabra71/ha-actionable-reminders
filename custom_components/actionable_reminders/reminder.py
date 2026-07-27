@@ -134,6 +134,7 @@ from .const import (
     DEFAULT_SNOOZE_MESSAGES,
     DEFAULT_SKIP_MESSAGES,
     DEFAULT_RESCHEDULE_MESSAGES,
+    DEFAULT_MANDATORY_MESSAGES,
     DEFAULT_QUESTION_PHRASES,
     DEFAULT_BIRTHDAY_QUESTION_PHRASES,
     DEFAULT_RESPONSE_HINT,
@@ -278,6 +279,7 @@ class ReminderRunner:
         self.snooze_messages = DEFAULT_SNOOZE_MESSAGES
         self.skip_messages = DEFAULT_SKIP_MESSAGES
         self.reschedule_messages = DEFAULT_RESCHEDULE_MESSAGES
+        self.mandatory_messages = DEFAULT_MANDATORY_MESSAGES
         
         # Notification settings (use hub defaults if not specified)
         self.mobile_service = config.get(
@@ -1199,6 +1201,8 @@ class ReminderRunner:
             return "tomorrow"
         if 2 <= delta <= 6:
             return d.strftime("%A")
+        if 7 <= delta <= 13:
+            return "next " + d.strftime("%A")
         return f"{d.strftime('%B')} {d.day}"
 
     def _past_earliest_retry_time(self, now: datetime) -> bool:
@@ -1773,6 +1777,7 @@ class ReminderRunner:
         """Skip this reminder for today."""
         if self.mandatory:
             _LOGGER.info("Skip refused — %s is mandatory", self.name)
+            await self._send_ack(random.choice(self.mandatory_messages))
             return
         today = dt_util.now().date().isoformat()
 
@@ -1823,6 +1828,7 @@ class ReminderRunner:
         """Defer this reminder — suppressed until now + duration."""
         if self.mandatory:
             _LOGGER.info("Snooze refused — %s is mandatory", self.name)
+            await self._send_ack(random.choice(self.mandatory_messages))
             return
         until = dt_util.now() + duration
         self._state[STATE_SNOOZE_UNTIL] = until.isoformat()
@@ -1906,6 +1912,7 @@ class ReminderRunner:
         """Override the next due date (scheduled reminders only)."""
         if self.mandatory:
             _LOGGER.info("Reschedule refused — %s is mandatory", self.name)
+            await self._send_ack(random.choice(self.mandatory_messages))
             return
         if self.schedule_type == "condition":
             _LOGGER.warning(

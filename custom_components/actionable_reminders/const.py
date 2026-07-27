@@ -305,6 +305,15 @@ DEFAULT_RESCHEDULE_MESSAGES = [
     "Alright, I'll wait until {when}.",
 ]
 
+# Spoken when a mandatory reminder is asked to skip/snooze/reschedule - those are
+# refused, so explain rather than stay silent. Rotated.
+DEFAULT_MANDATORY_MESSAGES = [
+    "Sorry, this one's required - I can't skip it or put it off. I'll keep reminding you.",
+    "That one's a must-do, so I can't move it. I'll check back soon.",
+    "This task is required - no skipping this time. I'll ask again a little later.",
+    "Can't push this one, it's important. I'll remind you again shortly.",
+]
+
 # Weekday mapping
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 WEEKDAY_LABELS = {
