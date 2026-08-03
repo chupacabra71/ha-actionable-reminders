@@ -1374,8 +1374,30 @@ class ReminderRunner:
         _LOGGER.info("Announcing for %s: %s", self.name, message)
         await self._announce(message)
 
+    @staticmethod
+    def _speech_safe(text: str) -> str:
+        """Make text safe for the Alexa Actionable Notifications skill.
+
+        The skill hands our text back to Alexa inside an SSML document, so a
+        raw & (or < >) makes that document invalid and Alexa answers "there
+        was a problem with the requested skill's response" instead of
+        speaking — the notification is simply lost, with no error anywhere in
+        HA. Reminder NAMES are the likely source now that they are spoken
+        (acks, skip confirmations, announcements): "Vacuums - Check Rollers &
+        Filters" broke exactly this way. User-authored prompt messages are
+        just as free-form, so sanitize at the outbound edge rather than at
+        each place a name gets interpolated.
+
+        Em dashes are normalized too: they buy nothing spoken, and the whole
+        payload rides through an input_text capped at 255 characters.
+        """
+        for bad, good in (("&", "and"), ("—", "-"), ("<", ""), (">", ""), ('"', "")):
+            text = text.replace(bad, good)
+        return text
+
     async def _announce(self, message: str) -> None:
         """Deliver a non-actionable announcement (prefer unified_notifications)."""
+        message = self._speech_safe(message)
         if self._use_unified_notifications():
             data = {
                 "method": "all",
@@ -1534,7 +1556,7 @@ class ReminderRunner:
             "alert_volume": volume,
             "severity": severity,
             "title": "🔔 Reminder",
-            "message": message,
+            "message": self._speech_safe(message),
             "tag": f"ar_{self.entry_id}",
             # Keep the mobile Done/Not-yet buttons live for the response window
             # (tunable: per-reminder override -> hub default -> 15 min). Alexa's
@@ -1860,15 +1882,23 @@ class ReminderRunner:
             await self.async_skip_today(source=source, confirmed=True)
             return
 
+        # The Alexa skill ferries this text through
+        # input_text.alexa_actionable_notification, which is capped at 255
+        # chars INCLUDING the JSON wrapper (~95). Overflow truncates to
+        # invalid JSON and the skill dies with "there was a problem with the
+        # requested skill's response". Bound the one free-form part.
+        spoken_name = self._speech_safe(self.name)
+        if len(spoken_name) > 60:
+            spoken_name = spoken_name[:57].rstrip() + "..."
+
         data = {
             "method": "all",
             "who": "all",
             "severity": "TIME-SENSITIVE",
             "title": "🔔 Confirm skip",
             "message": (
-                f"Skipping {self.name} stands it down until "
-                f"{self._skip_horizon_phrase()} — it won't come back before "
-                "then. Are you sure?"
+                f"Skip {spoken_name}? It won't come back until "
+                f"{self._skip_horizon_phrase()}. Say yes to confirm."
             ),
             # Its own tag: the reminder's live prompt may still be on screen,
             # and reusing ar_<entry_id> would replace it.
@@ -2150,7 +2180,7 @@ class ReminderRunner:
         # without its call site having to remember. str.replace, not
         # str.format, so an unsubstituted {when} or a literal brace in a
         # user-supplied message can't raise.
-        message = message.replace("{subject}", self.name)
+        message = self._speech_safe(message.replace("{subject}", self.name))
 
         # Personalize with the speaker's name if Alexa identified them (voice ID);
         # generic otherwise.
