@@ -33,7 +33,11 @@ dismiss:
 
 skip_today:
   name: Skip Today
-  description: Skip a reminder for today. Marks it as done for today but doesn't count as completed. Will restart tomorrow at the scheduled time.
+  description: >-
+    Skip a reminder for this occurrence. It stands down and does not return
+    until the next cycle. Because that is destructive, an unconfirmed call
+    sends a yes/no confirmation notification instead of skipping immediately;
+    only the "Yes, skip" reply actually skips.
   fields:
     entry_id:
       name: Entry ID
@@ -42,6 +46,15 @@ skip_today:
       example: "abc123def456"
       selector:
         text:
+    confirmed:
+      name: Confirmed
+      description: >-
+        Skip immediately without asking. Leave unset for the normal path — the
+        confirmation notification sets this itself when you answer yes.
+      required: false
+      example: true
+      selector:
+        boolean:
 
 force_prompt:
   name: Force Prompt

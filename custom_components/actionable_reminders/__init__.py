@@ -421,7 +421,11 @@ async def _register_services(hass: HomeAssistant) -> None:
         entry_id = call.data.get("entry_id")
         runner = _get_runner_by_id(hass, entry_id)
         if runner:
-            await runner.async_skip_today(context=call.context, source=call.data.get("source"))
+            await runner.async_skip_today(
+                context=call.context,
+                source=call.data.get("source"),
+                confirmed=call.data.get("confirmed", False),
+            )
         else:
             _LOGGER.error("Reminder not found: %s", entry_id)
     
@@ -613,6 +617,10 @@ async def _register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema({
             vol.Required("entry_id"): cv.string,
             vol.Optional("source"): cv.string,
+            # Skipping is the one destructive reply, so an unconfirmed call
+            # asks first. The confirmation's own "Yes, skip" button is what
+            # comes back with confirmed: true.
+            vol.Optional("confirmed"): cv.boolean,
         }),
     )
     

@@ -1817,13 +1817,111 @@ class ReminderRunner:
             SIGNAL_REMINDER_UPDATE.format(self.entry_id),
         )
 
+    def _next_occurrence_after_today(self) -> date | None:
+        """The next scheduled date strictly after today, or None."""
+        today = dt_util.now().date()
+        for offset in range(1, 366 * 5):
+            d = today + timedelta(days=offset)
+            if self._date_matches_schedule(d):
+                return d
+        return None
+
+    def _skip_horizon_phrase(self) -> str:
+        """How to describe, out loud, when a skipped reminder will return."""
+        if self.schedule_type == "condition":
+            # No calendar date to name — it returns when its anchor is met again.
+            return "the next time it comes due"
+        nxt = self._next_occurrence_after_today()
+        if nxt is None:
+            return "the next time it's due"
+        return self._humanize_date(nxt.isoformat())
+
+    async def _request_skip_confirmation(self, source: str | None) -> None:
+        """Ask once more before skipping — it is the one destructive reply.
+
+        "Done" and "not yet" are both recoverable: done can be re-prompted,
+        not-yet comes straight back. Skip stands the reminder down for the
+        whole occurrence, so it will not resurface until the next cycle —
+        and the person who said it may not realise that. Confirm explicitly
+        rather than let them find out by missing it.
+
+        Deliberately yes/no only: no string / duration / datetime actions are
+        passed, so the switchboard arms exactly two answers. Silence is NOT
+        consent — the no-answer path keeps the reminder alive.
+        """
+        if not self._use_unified_notifications():
+            # No switchboard to ask through. Honour the request rather than
+            # dropping it on the floor — an unconfirmable skip is still a skip.
+            _LOGGER.info(
+                "Skip confirmation unavailable (no unified_notifications) — "
+                "skipping %s directly",
+                self.name,
+            )
+            await self.async_skip_today(source=source, confirmed=True)
+            return
+
+        data = {
+            "method": "all",
+            "who": "all",
+            "severity": "TIME-SENSITIVE",
+            "title": "🔔 Confirm skip",
+            "message": (
+                f"Skipping {self.name} stands it down until "
+                f"{self._skip_horizon_phrase()} — it won't come back before "
+                "then. Are you sure?"
+            ),
+            # Its own tag: the reminder's live prompt may still be on screen,
+            # and reusing ar_<entry_id> would replace it.
+            "tag": f"ar_skip_{self.entry_id}",
+            "timeout": {"minutes": int(self.response_window)},
+            "confirm_text": "Yes, skip",
+            "confirm_action": [
+                {
+                    "action": f"{DOMAIN}.skip_today",
+                    "data": {"entry_id": self.entry_id, "confirmed": True},
+                }
+            ],
+            "dismiss_text": "No, keep it",
+            "dismiss_action": [
+                {
+                    "action": f"{DOMAIN}.dismiss",
+                    "data": {"entry_id": self.entry_id},
+                }
+            ],
+            "timeout_actions": [
+                {
+                    "action": f"{DOMAIN}.dismiss",
+                    "data": {"entry_id": self.entry_id},
+                }
+            ],
+        }
+        if self.alexa_devices:
+            data["alexa_device"] = self.alexa_devices[0]
+        _LOGGER.info("Asking for skip confirmation on %s", self.name)
+        try:
+            await self.hass.services.async_call(
+                "script", "unified_notifications", data, blocking=False
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error("Failed to ask skip confirmation for %s: %s", self.name, e)
+
     async def async_skip_today(
-        self, context: Context | None = None, source: str | None = None
+        self,
+        context: Context | None = None,
+        source: str | None = None,
+        confirmed: bool = False,
     ) -> None:
-        """Skip this reminder for today."""
+        """Skip this reminder for today (confirmed first — see _request_skip_confirmation).
+
+        `confirmed=True` performs the skip; the engine's own auto-skip after
+        max escalations goes through _auto_skip and is never gated on this.
+        """
         if self.mandatory:
             _LOGGER.info("Skip refused — %s is mandatory", self.name)
             await self._send_ack(random.choice(self.mandatory_messages))
+            return
+        if not confirmed:
+            await self._request_skip_confirmation(source)
             return
         today = dt_util.now().date().isoformat()
 
