@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import contextvars
 import random
 import re
 from datetime import date, datetime, time as dt_time, timedelta
@@ -1374,6 +1375,29 @@ class ReminderRunner:
         _LOGGER.info("Announcing for %s: %s", self.name, message)
         await self._announce(message)
 
+    def _notify_detached(self, data: dict[str, Any]) -> None:
+        """Start script.unified_notifications OUTSIDE the caller's script stack.
+
+        Every reply — voice or mobile tap — is delivered by running our
+        service from inside a script.unified_notifications run (through its
+        loop_through_actions helper). Anything that sends a NEW notification
+        from there is created in that run's context and inherits its script
+        execution path, so HA counts it as nested. The nested run then dies
+        the moment it needs loop_through_actions for its own answer:
+        "disallowed_recursion_detected", logged as a WARNING and dropped —
+        the answer simply does nothing. The skip confirmation hit this on its
+        first live test; the ack path has been racing the same guard all
+        along, surviving only when the parent happened to finish first.
+
+        Starting the task in a fresh contextvars.Context detaches it. Neither
+        hass.async_create_task nor async_call_later is enough — both copy the
+        current context, script stack included.
+        """
+        coro = self.hass.services.async_call(
+            "script", "unified_notifications", data, blocking=False
+        )
+        self.hass.loop.create_task(coro, context=contextvars.Context())
+
     @staticmethod
     def _speech_safe(text: str) -> str:
         """Make text safe for the Alexa Actionable Notifications skill.
@@ -1410,9 +1434,7 @@ class ReminderRunner:
             if self.alexa_devices:
                 data["alexa_device"] = self.alexa_devices[0]
             try:
-                await self.hass.services.async_call(
-                    "script", "unified_notifications", data, blocking=False
-                )
+                self._notify_detached(data)
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error("Announcement failed for %s: %s", self.name, e)
             return
@@ -1628,9 +1650,7 @@ class ReminderRunner:
                     }
                 ]
         try:
-            await self.hass.services.async_call(
-                "script", "unified_notifications", data, blocking=False
-            )
+            self._notify_detached(data)
         except Exception as e:  # noqa: BLE001
             _LOGGER.error(
                 "unified_notifications delivery failed for %s: %s", self.name, e
@@ -1929,9 +1949,7 @@ class ReminderRunner:
             data["alexa_device"] = self.alexa_devices[0]
         _LOGGER.info("Asking for skip confirmation on %s", self.name)
         try:
-            await self.hass.services.async_call(
-                "script", "unified_notifications", data, blocking=False
-            )
+            self._notify_detached(data)
         except Exception as e:  # noqa: BLE001
             _LOGGER.error("Failed to ask skip confirmation for %s: %s", self.name, e)
 
@@ -2197,9 +2215,7 @@ class ReminderRunner:
             if self.alexa_devices:
                 data["alexa_device"] = self.alexa_devices[0]
             try:
-                await self.hass.services.async_call(
-                    "script", "unified_notifications", data, blocking=False
-                )
+                self._notify_detached(data)
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error("Failed to send ack for %s: %s", self.name, e)
             return
