@@ -241,6 +241,7 @@ class ReminderRunner:
         self._thresh_latched = False  # in-memory hysteresis latch (threshold mode)
         self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
         self._display_fingerprint = None  # last pushed computed-attribute snapshot
+        self._pending_notifications = set()  # strong refs; see _notify_detached
 
         # Timer and event listeners
         self._timer_remove = None
@@ -1392,11 +1393,22 @@ class ReminderRunner:
         Starting the task in a fresh contextvars.Context detaches it. Neither
         hass.async_create_task nor async_call_later is enough — both copy the
         current context, script stack included.
+
+        Going around hass.async_create_task costs us the strong reference it
+        would have kept: asyncio only holds WEAK references to tasks, so an
+        unreferenced one can be garbage-collected mid-flight and the
+        notification vanishes with no error. Hold it until it finishes.
+        Losing one is not self-healing everywhere — a nagging prompt comes
+        back on the next tick, but acks, skip confirmations and one-shot
+        announcements are sent once and never retried (the announcement paths
+        stamp LAST_LEAD_DATE / LAST_DONE straight after sending).
         """
         coro = self.hass.services.async_call(
             "script", "unified_notifications", data, blocking=False
         )
-        self.hass.loop.create_task(coro, context=contextvars.Context())
+        task = self.hass.loop.create_task(coro, context=contextvars.Context())
+        self._pending_notifications.add(task)
+        task.add_done_callback(self._pending_notifications.discard)
 
     def _with_subject(self, text: str) -> str:
         """Substitute {subject} with the reminder name and make it speakable.
