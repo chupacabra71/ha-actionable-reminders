@@ -232,31 +232,39 @@ DEFAULT_BIRTHDAY_QUESTION_PHRASES = [
 # answer yes/no (the only replies the Alexa actionable skill understands).
 DEFAULT_RESPONSE_HINT = "Say yes, no, skip, or snooze."
 
+# Every acknowledgement names the reminder it is acknowledging: a bare "All
+# set, done" leaves you guessing which prompt you just answered, especially
+# when two are live at once. `{subject}` is substituted with the reminder name
+# by _send_ack — via str.replace, not str.format, so a pool string may carry
+# other placeholders ({when}) or literal braces without blowing up. Never open
+# a message WITH the placeholder: _send_ack lowercases the first character when
+# it prefixes the responder's name.
+
 # Spoken (and mobile) confirmation after a completion — rotated for variety.
 DEFAULT_ACK_MESSAGES = [
-    "Done, nice work.",
-    "Great, checked it off.",
-    "All set — thanks.",
-    "Got it, marked as done.",
-    "Perfect, that's handled.",
-    "Nice, one less thing on the list.",
-    "Consider it done.",
-    "Awesome, crossed it off.",
-    "That's taken care of.",
-    "Great job — marked complete.",
-    "Boom, done.",
-    "Thanks, all done.",
+    "Done — {subject} is checked off.",
+    "Great, I've marked {subject} done.",
+    "All set — {subject} is taken care of.",
+    "Got it, {subject} is marked complete.",
+    "Perfect, {subject} is handled.",
+    "Nice — {subject} is off the list.",
+    "Consider {subject} done.",
+    "Awesome, I've crossed off {subject}.",
+    "That's {subject} taken care of.",
+    "Great job — {subject} is marked complete.",
+    "Boom — {subject} is done.",
+    "Thanks, {subject} is all done.",
 ]
 # Spoken confirmation after a "no"/remind-later — reassures it'll come back.
 DEFAULT_DISMISS_MESSAGES = [
-    "No problem, I'll remind you again later.",
-    "Okay, I'll check back with you soon.",
-    "Sure, I'll bring it up again later.",
-    "No worries, I'll nudge you again later.",
-    "Alright, I'll remind you again in a bit.",
-    "Got it, I'll ask again later.",
-    "Okay, I'll circle back on this.",
-    "No rush, I'll remind you again.",
+    "No problem, I'll remind you about {subject} again later.",
+    "Okay, I'll check back about {subject} soon.",
+    "Sure, I'll bring {subject} up again later.",
+    "No worries, I'll nudge you about {subject} again later.",
+    "Alright, I'll remind you about {subject} in a bit.",
+    "Got it, I'll ask about {subject} again later.",
+    "Okay, I'll circle back on {subject}.",
+    "No rush — I'll remind you about {subject} again.",
 ]
 
 # Spoken when Alexa gets no usable answer but a mobile notification is still
@@ -283,42 +291,42 @@ DEFAULT_REPROMPT_MESSAGES = [
 # Spoken when a reminder is snoozed by voice ("later"/"snooze") - {when} is the
 # humanized delay (e.g. "an hour"). Rotated.
 DEFAULT_SNOOZE_MESSAGES = [
-    "Okay, I'll remind you in {when}.",
-    "Sure, I'll check back in {when}.",
-    "No problem, I'll give you {when}.",
-    "Alright, I'll nudge you again in {when}.",
-    "Got it, I'll come back in {when}.",
-    "Sounds good, I'll ask again in {when}.",
+    "Okay, I'll remind you about {subject} in {when}.",
+    "Sure, I'll check back on {subject} in {when}.",
+    "No problem — {subject} again in {when}.",
+    "Alright, I'll nudge you about {subject} in {when}.",
+    "Got it, I'll come back to {subject} in {when}.",
+    "Sounds good, I'll ask about {subject} again in {when}.",
 ]
 
 # Spoken when a reminder occurrence is skipped by voice ("skip it") - it stands
 # down for this occurrence and returns at the next scheduled due date. Rotated.
 DEFAULT_SKIP_MESSAGES = [
-    "Okay, skipping this one. I'll remind you next time it's due.",
-    "No problem, I'll skip it and catch you at the next one.",
-    "Sure, letting this one go - see you next time it's due.",
-    "Alright, skipped. I'll be back when it's next due.",
-    "Got it, we'll skip it this time.",
-    "Okay, I'll pass on this one and remind you next time it comes around.",
+    "Okay, skipping {subject} this time. I'll remind you when it's next due.",
+    "No problem, I'll skip {subject} and catch you at the next one.",
+    "Sure, letting {subject} go - see you next time it's due.",
+    "Alright, {subject} is skipped. I'll be back when it's next due.",
+    "Got it, we'll skip {subject} this time.",
+    "Okay, I'll pass on {subject} and remind you next time it comes around.",
 ]
 
 # Spoken when a reminder is moved to a spoken date ("remind me Friday") - {when}
 # is the humanized date (e.g. "Friday", "July 31"). Rotated.
 DEFAULT_RESCHEDULE_MESSAGES = [
-    "Okay, I'll remind you on {when}.",
-    "Sure, moved to {when}.",
-    "No problem, I'll bring it up on {when}.",
-    "Got it, rescheduled to {when}.",
-    "Alright, I'll wait until {when}.",
+    "Okay, I'll remind you about {subject} on {when}.",
+    "Sure, {subject} is moved to {when}.",
+    "No problem, I'll bring {subject} up on {when}.",
+    "Got it, {subject} is rescheduled to {when}.",
+    "Alright, I'll wait until {when} for {subject}.",
 ]
 
 # Spoken when a mandatory reminder is asked to skip/snooze/reschedule - those are
 # refused, so explain rather than stay silent. Rotated.
 DEFAULT_MANDATORY_MESSAGES = [
-    "Sorry, this one's required - I can't skip it or put it off. I'll keep reminding you.",
-    "That one's a must-do, so I can't move it. I'll check back soon.",
-    "This task is required - no skipping this time. I'll ask again a little later.",
-    "Can't push this one, it's important. I'll remind you again shortly.",
+    "Sorry, {subject} is required - I can't skip it or put it off. I'll keep reminding you.",
+    "That one's a must-do, so I can't move {subject}. I'll check back soon.",
+    "Can't skip {subject} - it's required. I'll ask again a little later.",
+    "Can't push {subject} back, it's important. I'll remind you again shortly.",
 ]
 
 # Weekday mapping

@@ -1885,8 +1885,10 @@ class ReminderRunner:
         await self._save_state()
         await self._record_journal("snooze", context, source)
         await self._send_ack(
-            random.choice(self.snooze_messages).format(
-                when=self._humanize_duration(duration)
+            # replace(), not format() — these pools also carry {subject},
+            # which _send_ack substitutes; format() would KeyError on it.
+            random.choice(self.snooze_messages).replace(
+                "{when}", self._humanize_duration(duration)
             )
         )
         _LOGGER.info("Reminder %s snoozed until %s", self.name, until.isoformat())
@@ -1974,8 +1976,9 @@ class ReminderRunner:
         await self._save_state()
         await self._record_journal("reschedule", context, source)
         await self._send_ack(
-            random.choice(self.reschedule_messages).format(
-                when=self._humanize_date(new_date)
+            # replace(), not format() — see async_snooze.
+            random.choice(self.reschedule_messages).replace(
+                "{when}", self._humanize_date(new_date)
             )
         )
         _LOGGER.info("Reminder %s rescheduled to %s", self.name, new_date)
@@ -2041,6 +2044,16 @@ class ReminderRunner:
         alexa_devices still gets spoken feedback. Fall back to a direct Alexa TTS
         only if the script isn't present, keeping the integration shareable.
         """
+        # Name what is being acknowledged. "All set, done" leaves you guessing
+        # which prompt you just answered — worse when two are live at once, and
+        # worst on voice, where there is nothing on screen to check against.
+        # Every ack-family pool carries {subject}; substitute here so each path
+        # (done / dismiss / skip / snooze / reschedule / mandatory) gets it
+        # without its call site having to remember. str.replace, not
+        # str.format, so an unsubstituted {when} or a literal brace in a
+        # user-supplied message can't raise.
+        message = message.replace("{subject}", self.name)
+
         # Personalize with the speaker's name if Alexa identified them (voice ID);
         # generic otherwise.
         name = self._resolve_responder()
