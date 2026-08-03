@@ -1593,18 +1593,25 @@ class ReminderRunner:
         if self.actionable:
             data.update(
                 {
+                    # Options one and two are the only replies reachable from
+                    # BOTH channels (mobile button or Alexa yes/no), so they are
+                    # the only ones that can't name their own source. The empty
+                    # "source" is a marker: the switchboard fills it with the
+                    # channel it actually came from. Actions without the key are
+                    # left alone there, so other callers can't get an unexpected
+                    # kwarg their service schema would reject.
                     "confirm_text": "Done",
                     "confirm_action": [
                         {
                             "action": f"{DOMAIN}.mark_done",
-                            "data": {"entry_id": self.entry_id},
+                            "data": {"entry_id": self.entry_id, "source": ""},
                         }
                     ],
                     "dismiss_text": "Not yet",
                     "dismiss_action": [
                         {
                             "action": f"{DOMAIN}.dismiss",
-                            "data": {"entry_id": self.entry_id},
+                            "data": {"entry_id": self.entry_id, "source": ""},
                         }
                     ],
                     # A spoken reply that isn't yes/no makes the Alexa skill fire
@@ -1615,7 +1622,7 @@ class ReminderRunner:
                     "timeout_actions": [
                         {
                             "action": f"{DOMAIN}.dismiss",
-                            "data": {"entry_id": self.entry_id},
+                            "data": {"entry_id": self.entry_id, "source": ""},
                         }
                     ],
                     # Rotating "left it on your phone" line the switchboard speaks
@@ -1647,6 +1654,24 @@ class ReminderRunner:
                     {
                         "action": f"{DOMAIN}.snooze",
                         "data": {"entry_id": self.entry_id, "source": "voice"},
+                    }
+                ]
+                # Third button = Skip, completing the set: Done / ask again
+                # soon / stand down for this occurrence. Voice already reaches
+                # skip through the free-text reply, but the push had no way to
+                # get there. Mobile-only by design — the Alexa skill maps
+                # replies through yes/no, so a third option has nothing to bind
+                # to. It calls skip_today UNCONFIRMED, so tapping it opens the
+                # same yes/no confirmation the spoken "skip" does; the button is
+                # a request, not the deed. Marked destructive so iOS renders it
+                # red next to the two recoverable answers. Mandatory reminders
+                # can't be skipped, so they don't get the button.
+                data["option_three_text"] = "Skip"
+                data["option_three_is_destructive"] = True
+                data["option_three_action"] = [
+                    {
+                        "action": f"{DOMAIN}.skip_today",
+                        "data": {"entry_id": self.entry_id, "source": ""},
                     }
                 ]
         try:
@@ -1750,12 +1775,18 @@ class ReminderRunner:
     async def _record_journal(
         self, action: str, context: Context | None = None, source: str | None = None
     ) -> None:
-        """Append a completion-path action to the hub audit journal."""
+        """Append a completion-path action to the hub audit journal.
+
+        An empty source is the unfilled marker we hand the switchboard (see
+        _send_via_unified_notifications) — it means "nobody told us", which is
+        None, not "". Reaching here still empty means the action ran outside
+        the switchboard, e.g. a direct service call or the dashboard.
+        """
         journal = self.hass.data.get(DOMAIN, {}).get("hub", {}).get("journal")
         if journal:
             await journal.record(
                 uid=self.uid, name=self.name, action=action,
-                context=context, source=source,
+                context=context, source=source or None,
             )
 
     async def async_mark_done(
@@ -1928,20 +1959,24 @@ class ReminderRunner:
             "confirm_action": [
                 {
                     "action": f"{DOMAIN}.skip_today",
-                    "data": {"entry_id": self.entry_id, "confirmed": True},
+                    "data": {
+                        "entry_id": self.entry_id,
+                        "confirmed": True,
+                        "source": "",
+                    },
                 }
             ],
             "dismiss_text": "No, keep it",
             "dismiss_action": [
                 {
                     "action": f"{DOMAIN}.dismiss",
-                    "data": {"entry_id": self.entry_id},
+                    "data": {"entry_id": self.entry_id, "source": ""},
                 }
             ],
             "timeout_actions": [
                 {
                     "action": f"{DOMAIN}.dismiss",
-                    "data": {"entry_id": self.entry_id},
+                    "data": {"entry_id": self.entry_id, "source": ""},
                 }
             ],
         }
