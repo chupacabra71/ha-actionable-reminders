@@ -270,14 +270,14 @@ DEFAULT_DISMISS_MESSAGES = [
 # Spoken when Alexa gets no usable answer but a mobile notification is still
 # live — keeps the phone window open (see the switchboard wait-loop). Rotated.
 DEFAULT_NO_ANSWER_MESSAGES = [
-    "Okay, I'll leave this on your phone.",
-    "No problem — it's on your phone if you want it.",
-    "Alright, I've popped it onto your phone.",
-    "Sure, I'll leave it on your phone for you.",
-    "No worries, you can tap it on your phone.",
-    "Got it — it's waiting on your phone.",
-    "Okay, I'll leave it on your phone for now.",
-    "Alright, check your phone whenever you're ready.",
+    "Okay, I'll leave {subject} on your phone.",
+    "No problem — {subject} is on your phone if you want it.",
+    "Alright, I've popped {subject} onto your phone.",
+    "Sure, I'll leave {subject} on your phone for you.",
+    "No worries, you can tap {subject} on your phone.",
+    "Got it — {subject} is waiting on your phone.",
+    "Okay, I'll leave {subject} on your phone for now.",
+    "Alright, {subject} is on your phone whenever you're ready.",
 ]
 
 # Spoken when a reply is not understood - re-opens the mic for another try. Rotated.

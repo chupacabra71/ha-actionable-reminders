@@ -1398,6 +1398,18 @@ class ReminderRunner:
         )
         self.hass.loop.create_task(coro, context=contextvars.Context())
 
+    def _with_subject(self, text: str) -> str:
+        """Substitute {subject} with the reminder name and make it speakable.
+
+        Every line we put in someone's ear names what it is about — a bare
+        "it's waiting on your phone" leaves you guessing which prompt, worst
+        of all on voice, where there is nothing on screen to check against.
+        Pair the substitution with _speech_safe here rather than at each call
+        site: the name is free text, so interpolating one is exactly when an
+        SSML-hostile character shows up.
+        """
+        return self._speech_safe(text.replace("{subject}", self.name))
+
     @staticmethod
     def _speech_safe(text: str) -> str:
         """Make text safe for the Alexa Actionable Notifications skill.
@@ -1626,8 +1638,13 @@ class ReminderRunner:
                         }
                     ],
                     # Rotating "left it on your phone" line the switchboard speaks
-                    # when Alexa gets no usable answer but the phone is still live.
-                    "no_answer_feedback": random.choice(self.no_answer_messages),
+                    # when Alexa gets no usable answer but the phone is still
+                    # live. Names the reminder like every other spoken line —
+                    # "it's waiting on your phone" doesn't say WHICH, and this
+                    # one lands ~20s after the prompt with nothing on screen.
+                    "no_answer_feedback": self._with_subject(
+                        random.choice(self.no_answer_messages)
+                    ),
                     # Any free-text spoken reply (Alexa ResponseString) is routed
                     # by handle_response: "skip", "done", "later", etc.
                     "string_action": [
@@ -2233,7 +2250,7 @@ class ReminderRunner:
         # without its call site having to remember. str.replace, not
         # str.format, so an unsubstituted {when} or a literal brace in a
         # user-supplied message can't raise.
-        message = self._speech_safe(message.replace("{subject}", self.name))
+        message = self._with_subject(message)
 
         # Personalize with the speaker's name if Alexa identified them (voice ID);
         # generic otherwise.
