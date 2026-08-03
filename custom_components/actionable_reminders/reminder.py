@@ -239,6 +239,7 @@ class ReminderRunner:
         self._accum_warned = False    # de-spam accumulator source-read errors
         self._thresh_latched = False  # in-memory hysteresis latch (threshold mode)
         self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
+        self._display_fingerprint = None  # last pushed computed-attribute snapshot
 
         # Timer and event listeners
         self._timer_remove = None
@@ -513,8 +514,42 @@ class ReminderRunner:
     # Timer Tick Logic
     # ────────────────────────────────────────────────────────────────────────────
 
+    def _refresh_display(self) -> None:
+        """Push live-computed attributes to the switch when they change.
+
+        The switch entity only writes state on SIGNAL_REMINDER_UPDATE, and
+        until now the only dispatchers were event paths (prompt, done,
+        dismiss, snooze, config change). Everything the switch computes fresh
+        on each read — urgency, status, summary, days_until_due, accumulator
+        progress — therefore sat frozen in the state machine between events.
+        Accumulator reminders were the visible casualty: the source climbs on
+        its own schedule but the dashboard's progress bar and percentage only
+        moved when something happened to the reminder. Due DETECTION was never
+        affected (_is_scheduled reads the source directly), only the display.
+
+        Dispatch is gated on a fingerprint so an unchanged reminder does not
+        write state every minute.
+        """
+        fingerprint = (
+            round(self.urgency, 3),
+            self.status,
+            self.summary,
+            self.days_until_due,
+            (d.isoformat() if (d := self.next_due_date) else None),
+            tuple(sorted(self.condition_status().items())),
+        )
+        if fingerprint == self._display_fingerprint:
+            return
+        self._display_fingerprint = fingerprint
+        async_dispatcher_send(self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id))
+
     async def _on_timer_tick(self, now: datetime) -> None:
         """Handle timer tick (runs every minute)."""
+        # Ahead of every gate below: a disabled reminder, a reminder muted by
+        # the master switch, and a reminder whose tick is already in flight all
+        # still need their displayed progress to stay current.
+        self._refresh_display()
+
         if not self._enabled:
             return
 
