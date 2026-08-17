@@ -226,7 +226,7 @@
           "default_nag_min_gap": "Never nag closer together than this.",
           "default_nag_max_gap": "Never nag further apart than this.",
           "default_nag_fraction": "Each nag targets this fraction of the time left until quiet hours, so nags compress toward the cutoff (0.35 is a good default).",
-          "voice_responders": "Map Alexa speakers to names for personalized acks. One 'amzn1.ask.person.XXXX = Name' per line. Leave blank until Alexa Voice ID is set up.",
+          "voice_responders": "Map Alexa speakers to names for personalized acks. One 'amzn1.ask.person.XXXX = Name' per line; pipe-separate several names ('= Ida | Idita | Boss Lady') and one is picked at random per acknowledgement. Leave blank until Alexa Voice ID is set up.",
           "earliest_retry_time": "Reminders don't resume before this time.",
           "default_mobile_service": "Leave empty to let the notification script pick.",
           "default_alexa_devices": "Default Echo(s) for announcements and voice acknowledgement.",

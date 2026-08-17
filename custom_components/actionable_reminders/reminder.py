@@ -2231,11 +2231,15 @@ class ReminderRunner:
     # ────────────────────────────────────────────────────────────────────────────
 
     def _resolve_responder(self) -> str | None:
-        """Name of whoever Alexa said last responded to this reminder (voice ID).
+        """What to call whoever Alexa said just responded to this reminder.
+
+        Each person maps to a POOL of names (see _parse_responder_map) and one
+        is drawn per ack, so "Seb", "Sebby" and "El Jefe" rotate rather than the
+        same greeting landing every time.
 
         None when no recent responder is cached or the person id isn't in the
-        hub's responder map, so acks stay generic until Alexa Voice ID is set up
-        and the map is filled in.
+        hub's responder map, so acks stay generic — which is every mobile tap,
+        since only Alexa Voice ID supplies a person id.
         """
         hub = self.hass.data.get(DOMAIN, {}).get("hub", {})
         cached = hub.get("responders", {}).get(f"ar_{self.entry_id}")
@@ -2244,7 +2248,13 @@ class ReminderRunner:
         pid, ts = cached
         if (dt_util.utcnow() - ts).total_seconds() > 60:
             return None
-        return hub.get("responder_map", {}).get(pid)
+        names = hub.get("responder_map", {}).get(pid)
+        if not names:
+            return None
+        # Tolerate a legacy single-string map (pre-pool config in hass.data).
+        if isinstance(names, str):
+            return names
+        return random.choice(names)
 
     async def _send_ack(self, message: str) -> None:
         """Speak a short confirmation (completion ack / dismiss "remind later").

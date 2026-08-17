@@ -85,15 +85,25 @@ HUB_PLATFORMS = [Platform.TODO, Platform.SWITCH, Platform.SENSOR]
 # Integration Setup
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _parse_responder_map(text: str) -> dict[str, str]:
-    """Parse 'person_id = name' pairs (comma or newline separated) into a dict."""
-    result: dict[str, str] = {}
+def _parse_responder_map(text: str) -> dict[str, list[str]]:
+    """Parse 'person_id = name' pairs (comma or newline separated) into a dict.
+
+    The value is a POOL of names, pipe-separated — 'person_id = Ida | Idita |
+    Boss Lady' — one of which is picked per ack, so the house doesn't hear the
+    same greeting every time. A plain 'person_id = Ida' is a pool of one, so
+    existing maps parse unchanged.
+
+    Pipe, not comma: commas already separate map entries (see the replace
+    below), so a comma-separated pool would read as several bare person ids.
+    """
+    result: dict[str, list[str]] = {}
     for line in (text or "").replace(",", "\n").splitlines():
         if "=" in line:
             k, v = line.split("=", 1)
-            k, v = k.strip(), v.strip()
-            if k and v:
-                result[k] = v
+            k = k.strip()
+            names = [n.strip() for n in v.split("|") if n.strip()]
+            if k and names:
+                result[k] = names
     return result
 
 
