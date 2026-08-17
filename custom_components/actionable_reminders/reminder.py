@@ -1896,16 +1896,20 @@ class ReminderRunner:
         _LOGGER.info("Reminder dismissed: %s", self.name)
         
         now = dt_util.now()
-        
-        # Update state
+
+        # Restart the gap clock from the answer, so a "not yet" buys the full
+        # nag interval rather than the remainder of the one already running.
         self._state[STATE_LAST_PROMPT] = now.isoformat()
-        
-        # Increment appropriate counter
-        if self._state[STATE_ESCALATED]:
-            self._state[STATE_ESCALATIONS_TODAY] += 1
-        else:
-            self._state[STATE_RETRIES_TODAY] += 1
-        
+
+        # Deliberately does NOT touch retries_today / escalations_today.
+        # _send_prompt already counted this cycle when it asked, and counting
+        # the answer too made one ask-and-answer cost two retries: a reminder
+        # with max_retries 5 escalated on its THIRD prompt (observed 2026-08-16,
+        # where consecutive prompts logged retries=0, 2, 4, 6) and auto-skipped
+        # about twice as early as configured. The ask is the thing being
+        # rationed, so the ask is what counts — and a dismiss with no prompt
+        # behind it (dashboard, direct service call) now costs nothing.
+
         await self._save_state()
         await self._record_journal("dismiss", context, source)
 

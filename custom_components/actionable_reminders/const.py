@@ -175,7 +175,8 @@ STATE_NEXT_NAG_MINUTES = "next_nag_minutes"                      # Adaptive minu
 
 # Hub defaults
 DEFAULT_RETRY_INTERVAL = 30                                      # 30 minutes
-DEFAULT_MAX_RETRIES = 5                                          # 5 retries before escalation
+DEFAULT_MAX_RETRIES = 3                                          # asks before escalation (was 5 when a
+                                                                 # cycle cost two — see async_dismiss)
 DEFAULT_ESCALATION_INTERVAL = 15                                 # 15 minutes during escalation
 DEFAULT_RESPONSE_WINDOW = 15                                      # Minutes to keep the actionable response window open (mobile buttons live; voice is Amazon-capped shorter)
 # Adaptive nag timing: the gap before the next nag is a jittered fraction of the
@@ -186,7 +187,8 @@ DEFAULT_NAG_MAX_GAP = 120                                         # minutes - ce
 DEFAULT_NAG_FRACTION = 0.35                                       # gap ~= this fraction of the time until quiet
 DEFAULT_NAG_JITTER = 0.3                                          # +/- randomness applied to the gap
 DEFAULT_MAX_REPROMPTS = 2                                         # voice clarifications before giving up for the cycle
-DEFAULT_MAX_ESCALATIONS = 5                                      # 5 escalations before auto-skip
+DEFAULT_MAX_ESCALATIONS = 3                                      # escalated asks before auto-skip (was 5,
+                                                                 # same double-count)
 DEFAULT_EARLIEST_RETRY_TIME = "10:00"                            # Restart at 10 AM after auto-skip
 DEFAULT_ACTIONABLE = True                                        # Actionable by default
 DEFAULT_MASTER_ENABLED = True                                    # Master switch on by default
