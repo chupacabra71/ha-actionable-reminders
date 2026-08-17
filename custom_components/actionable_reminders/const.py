@@ -228,9 +228,21 @@ DEFAULT_BIRTHDAY_QUESTION_PHRASES = [
     "Have you wished them a happy birthday?",
     "Did you send your wishes?",
 ]
-# Response cue appended after the question on actionable prompts so people
-# answer yes/no (the only replies the Alexa actionable skill understands).
-DEFAULT_RESPONSE_HINT = "Say yes, no, skip, or snooze."
+# Response cue appended after the question on actionable prompts.
+#
+# NEVER advertise a bare "snooze" or "skip" here. Verified live 2026-08-17:
+# the single word "snooze" is swallowed by Alexa before the skill sees it —
+# she announces "Resuming Alexa Actionable Notifications", hands the session
+# back, and the skill re-speaks the whole reminder. Say it again and it loops,
+# which is what a household hears as "it snoozed and came straight back". What
+# little text survives reaches us as gibberish (the test reply arrived as
+# 'music'), so the router can't act on it either.
+#
+# Two-word forms are safe, because the skill's catch-all slot is an
+# AMAZON.SearchQuery, which Amazon does not match against single words at all.
+# Verified working: "snooze it", "remind me later", "snooze for two hours"
+# (the last arrives as ResponseDuration, in seconds).
+DEFAULT_RESPONSE_HINT = "Say yes, no, skip it, or snooze it."
 
 # Every acknowledgement names the reminder it is acknowledging: a bare "All
 # set, done" leaves you guessing which prompt you just answered, especially
@@ -280,12 +292,15 @@ DEFAULT_NO_ANSWER_MESSAGES = [
     "Alright, {subject} is on your phone whenever you're ready.",
 ]
 
-# Spoken when a reply is not understood - re-opens the mic for another try. Rotated.
+# Spoken when a reply is not understood - re-opens the mic for another try.
+# Rotated. Same rule as DEFAULT_RESPONSE_HINT: two-word forms only. This pool
+# is what plays after Alexa has already eaten a bare "snooze", so advertising
+# the bare word here is what turned one failed reply into a loop.
 DEFAULT_REPROMPT_MESSAGES = [
-    "Sorry, I did not catch that. You can say yes, no, skip, or snooze.",
-    "Hmm, I missed that - say yes, no, skip, or snooze.",
-    "I did not get that one. Yes, no, skip, or snooze?",
-    "Let us try again - say yes, no, skip, or snooze.",
+    "Sorry, I did not catch that. You can say yes, no, skip it, or snooze it.",
+    "Hmm, I missed that - say yes, no, skip it, or snooze it.",
+    "I did not get that one. Yes, no, skip it, or snooze it?",
+    "Let us try again - say yes, no, skip it, or snooze it.",
 ]
 
 # Spoken when a reminder is snoozed by voice ("later"/"snooze") - {when} is the
