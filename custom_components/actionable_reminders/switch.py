@@ -34,6 +34,7 @@ from .const import (
     STATE_SNOOZE_UNTIL,
     STATE_RESCHEDULE_DATE,
     STATE_CARRY_FROM,
+    STATE_PROMPT_OPEN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -151,6 +152,7 @@ class ReminderSwitch(SwitchEntity):
             "snoozed_until": state.get(STATE_SNOOZE_UNTIL),
             "reschedule_date": state.get(STATE_RESCHEDULE_DATE),
             "carry_from": state.get(STATE_CARRY_FROM),
+            "prompt_open": state.get(STATE_PROMPT_OPEN, False),
             "actionable": self._runner.actionable,
             "retry_interval": self._runner.retry_interval,
             "max_retries": self._runner.max_retries,
