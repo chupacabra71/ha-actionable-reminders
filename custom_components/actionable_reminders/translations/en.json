@@ -213,7 +213,8 @@
           "default_actionable": "Actionable notifications",
           "default_presence_sensors": "Presence sensors",
           "default_quiet_start": "Quiet hours start",
-          "default_quiet_end": "Quiet hours end"
+          "default_quiet_end": "Quiet hours end",
+          "clear_notification_service": "Clear-notification service"
         },
         "data_description": {
           "default_retry_interval": "Minutes between retries before escalation kicks in.",
@@ -232,7 +233,8 @@
           "default_actionable": "Offer Done / Not-yet buttons by default.",
           "default_presence_sensors": "Only prompt when at least one of these is home.",
           "default_quiet_start": "Nothing fires after this time.",
-          "default_quiet_end": "Nothing fires before this time."
+          "default_quiet_end": "Nothing fires before this time.",
+          "clear_notification_service": "Notify service used to retract a reminder's notification once it is answered or resolves itself. Set this to the service your prompts actually reach — if they go through a notification script, use the service that script targets. Leave empty to leave delivered notifications in place."
         }
       }
     }

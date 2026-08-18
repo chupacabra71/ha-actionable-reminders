@@ -48,6 +48,7 @@ SERVICE_CALENDAR_ACK = "calendar_ack"                            # Ack a calenda
 
 # Master switch — global kill switch for ALL reminder/calendar notifications
 CONF_MASTER_ENABLED = "master_enabled"                           # Hub-level: when False, nothing prompts
+CONF_CLEAR_NOTIFICATION_SERVICE = "clear_notification_service"  # Hub: notify service used to retract a delivered prompt
 CONF_VOICE_RESPONDERS = "voice_responders"                       # Hub-level: "person_id = name" map (Alexa Voice ID) for personalized acks
 SIGNAL_MASTER_UPDATED = f"{DOMAIN}_master_updated"               # Fired when the master switch toggles
 
@@ -164,6 +165,7 @@ STATE_RESET_DAY = "reset_day"                                    # Date (YYYY-MM
 STATE_ACCUM_BASELINE = "accumulator_baseline"                    # Source value captured at last completion (accumulator mode)
 STATE_SNOOZE_UNTIL = "snooze_until"                              # ISO datetime; not due before this (snooze)
 STATE_RESCHEDULE_DATE = "reschedule_date"                        # ISO date; overrides the next occurrence (reschedule_next)
+STATE_PROMPT_OPEN = "prompt_open"                                # A delivered prompt is still on screen, unanswered
 STATE_CARRY_FROM = "carry_from"                                  # ISO date of an unfinished occurrence carried forward (until_done)
 STATE_REPROMPT_COUNT = "reprompt_count"                          # Voice-clarification reprompts used this cycle
 STATE_NEXT_NAG_MINUTES = "next_nag_minutes"                      # Adaptive minutes until the next nag (picked per prompt)

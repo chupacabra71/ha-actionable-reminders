@@ -1,6 +1,7 @@
 """Audit journal — a persisted, bounded log of reminder activity.
 
-Records every completion-path action (done / skip / dismiss / auto_skip) with a
+Records every completion-path action (done / skip / dismiss / auto_skip /
+resolved) with a
 timestamp, the reminder, the actor (the HA user who triggered it, when known),
 and a free-text source. Exposed via the activity sensor and the
 ``actionable_reminders_journal`` event; cheap to add, and the foundation for

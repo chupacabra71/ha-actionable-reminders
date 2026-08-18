@@ -81,6 +81,7 @@ from .const import (
     CONF_LEAD_TIMES,
     CONF_NAG,
     CONF_MANDATORY,
+    CONF_CLEAR_NOTIFICATION_SERVICE,
     CONF_ALLOW_CRITICAL,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
@@ -109,6 +110,7 @@ from .const import (
     STATE_SNOOZE_UNTIL,
     STATE_RESCHEDULE_DATE,
     STATE_CARRY_FROM,
+    STATE_PROMPT_OPEN,
     STATE_REPROMPT_COUNT,
     STATE_NEXT_NAG_MINUTES,
     DEFAULT_RETRY_INTERVAL,
@@ -227,6 +229,7 @@ class ReminderRunner:
             STATE_SNOOZE_UNTIL: None,
             STATE_RESCHEDULE_DATE: None,
             STATE_CARRY_FROM: None,
+            STATE_PROMPT_OPEN: False,
         }
         self._store = Store(
             hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{self.uid}"
@@ -573,6 +576,10 @@ class ReminderRunner:
             # Reset daily state at midnight
             await self._check_daily_reset(now)
 
+            # A condition reminder's anchor can clear between ticks; that is a
+            # completion nobody reported, so catch it before the due check.
+            await self._check_condition_resolved(now)
+
             # Pre-notifications (lead-time heads-ups) — independent of the due nag
             await self._maybe_send_lead_announcement(now)
 
@@ -597,6 +604,64 @@ class ReminderRunner:
             self._state[STATE_AUTO_SKIPPED] = False
             self._carry_unfinished_occurrence(previous, now.date())
             await self._save_state()
+
+    async def _check_condition_resolved(self, now: datetime) -> None:
+        """Close out a condition reminder whose anchor cleared by itself.
+
+        A condition reminder is due while its anchor says so, and when the
+        anchor goes false the engine just stops prompting. That left two things
+        wrong: the prompt already delivered stayed on the phone, and nothing
+        recorded that the chore had actually been done — so the journal, the
+        completion event and last_done all missed it. Filling the robot's water
+        tank clears the error code that made the reminder due, and until now
+        that looked identical to never having been reminded at all.
+
+        Reads _eval_condition() rather than _is_due() on purpose: quiet hours,
+        presence and the retry gate also make a reminder not-due, and none of
+        them means resolved.
+        """
+        if self.schedule_type != "condition":
+            return
+        if not self._state.get(STATE_PROMPT_OPEN):
+            return  # never asked, so there is nothing to close
+        today = now.date().isoformat()
+        if self._state.get(STATE_LAST_DONE) == today:
+            return  # already closed by an answer
+        if self._eval_condition():
+            return  # still due
+
+        _LOGGER.info("%s resolved on its own — recording the completion", self.name)
+        self._state[STATE_LAST_DONE] = today
+        self._state[STATE_RETRIES_TODAY] = 0
+        self._state[STATE_ESCALATED] = False
+        self._state[STATE_ESCALATIONS_TODAY] = 0
+        self._state[STATE_AUTO_SKIPPED] = False
+        self._state[STATE_SNOOZE_UNTIL] = None
+
+        # Re-anchor an accumulator exactly as a manual completion would. The
+        # source has already dropped — that is WHY the anchor cleared — and
+        # keeping the old baseline would misreport progress from here on.
+        if self.condition_mode == "accumulator" and self.accum_reset_on_done:
+            cur = self._read_numeric(self.accum_source)
+            if cur is not None:
+                self._state[STATE_ACCUM_BASELINE] = cur
+
+        await self._retract_prompt()
+        await self._save_state()
+        await self._record_journal("resolved", source="auto")
+
+        # on_complete is deliberately NOT run. It exists to CAUSE the
+        # resolution — press the reset button, zero the counter — so firing it
+        # once the anchor has already cleared would repeat a side effect that
+        # has plainly happened.
+        self.hass.bus.async_fire(
+            EVENT_COMPLETED,
+            {"entry_id": self.entry_id, "name": self.name, "auto_resolved": True},
+        )
+        async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
+        async_dispatcher_send(
+            self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
+        )
 
     def _carry_unfinished_occurrence(self, previous: str | None, today: date) -> None:
         """Mark an occurrence that ended unanswered as still outstanding.
@@ -1627,6 +1692,10 @@ class ReminderRunner:
 
         # Update state
         self._state[STATE_LAST_PROMPT] = now.isoformat()
+        # A card is now on screen awaiting an answer. Tracked so it can be
+        # retracted later — and it deliberately survives midnight, because the
+        # notification does too.
+        self._state[STATE_PROMPT_OPEN] = True
         # Fresh prompt cycle: clear voice-clarification reprompts and pick the
         # adaptive, jittered gap before the next nag (compresses toward quiet hours).
         self._state[STATE_REPROMPT_COUNT] = 0
@@ -1643,6 +1712,55 @@ class ReminderRunner:
             self.hass,
             SIGNAL_REMINDER_UPDATE.format(self.entry_id),
         )
+
+    def _clear_notification_service(self) -> str | None:
+        """The notify service used to retract a prompt already delivered.
+
+        Per-reminder mobile service first — that is where the built-in sender
+        put it. Otherwise the hub-wide setting, which is what covers the
+        unified_notifications path: that script resolves its own target from
+        `who`, so the integration never learns which service it picked.
+        """
+        return self.mobile_service or self._hub_config.get(
+            CONF_CLEAR_NOTIFICATION_SERVICE
+        )
+
+    async def _retract_prompt(self) -> None:
+        """Pull an outstanding prompt off the phone.
+
+        Prompts carry a stable `ar_<entry_id>` tag, so this removes exactly the
+        card this reminder put there. Tapping a notification action already
+        dismisses it on the device; this covers every other way an occurrence
+        closes — answered by voice, from the dashboard, or resolved on its own.
+
+        A silent no-op when nothing is outstanding or no service is configured:
+        this is called from the completion paths, and failing to clear a card
+        must never take a completion down with it.
+        """
+        if not self._state.get(STATE_PROMPT_OPEN):
+            return
+        self._state[STATE_PROMPT_OPEN] = False
+        service = self._clear_notification_service()
+        if not service:
+            _LOGGER.debug(
+                "No clear-notification service set; leaving the card for %s",
+                self.name,
+            )
+            return
+        domain, _, name = service.partition(".")
+        if not name:
+            domain, name = "notify", service
+        try:
+            await self.hass.services.async_call(
+                domain,
+                name,
+                {
+                    "message": "clear_notification",
+                    "data": {"tag": f"ar_{self.entry_id}"},
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error("Failed to clear notification for %s: %s", self.name, e)
 
     def _use_unified_notifications(self) -> bool:
         """Whether to delegate delivery to script.unified_notifications.
@@ -1907,6 +2025,7 @@ class ReminderRunner:
         self._state[STATE_SNOOZE_UNTIL] = None
         self._state[STATE_RESCHEDULE_DATE] = None
         self._state[STATE_CARRY_FROM] = None
+        await self._retract_prompt()
 
         # Accumulator re-anchor: capture the source's current value as the new
         # baseline so "accumulated since done" restarts from zero — this is what
@@ -2123,6 +2242,7 @@ class ReminderRunner:
         # occurrence outright. This is the way out of an until_done carry —
         # which is also why mandatory reminders refuse to skip at all.
         self._state[STATE_CARRY_FROM] = None
+        await self._retract_prompt()
 
         await self._save_state()
         await self._record_journal("skip", context, source)
@@ -2296,6 +2416,7 @@ class ReminderRunner:
                 self._state.get(STATE_CARRY_FROM) or today
             )
 
+        await self._retract_prompt()
         await self._save_state()
         await self._record_journal("auto_skip", source="auto")
 

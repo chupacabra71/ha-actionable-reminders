@@ -73,6 +73,33 @@ dt_util = sys.modules["homeassistant.util.dt"]
 ReminderRunner = reminder_mod.ReminderRunner
 
 
+class FakeStates:
+    """Minimal entity-state store for accumulator/threshold conditions."""
+
+    def __init__(self) -> None:
+        self._states: dict = {}
+
+    def set(self, entity_id: str, value) -> None:
+        self._states[entity_id] = types.SimpleNamespace(state=str(value))
+
+    def get(self, entity_id: str):
+        return self._states.get(entity_id)
+
+
+class FakeServices:
+    """Records service calls so the notification clear can be asserted on."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+        self._registered = {("script", "unified_notifications")}
+
+    def has_service(self, domain, service):
+        return (domain, service) in self._registered
+
+    async def async_call(self, domain, service, data=None, **kw):
+        self.calls.append((domain, service, data))
+
+
 class FakeBus:
     def __init__(self) -> None:
         self.fired: list[tuple] = []
@@ -84,6 +111,8 @@ class FakeBus:
 class FakeHass:
     def __init__(self) -> None:
         self.bus = FakeBus()
+        self.services = FakeServices()
+        self.states = FakeStates()
         self.data = {const.DOMAIN: {"hub": {"master_enabled": True}}}
 
 
@@ -95,12 +124,13 @@ def make_runner(**config):
     replaced with recorders so the lifecycle calls (done / skip / auto-skip)
     can be driven without a live HA.
     """
+    real_condition = config.pop("real_condition", False)
     r = ReminderRunner.__new__(ReminderRunner)
     r.hass = FakeHass()
     r.name = config.pop("name", "Test Reminder")
     r.entry_id = "test_entry"
     r.uid = "test_uid"
-    r._hub_config = {}
+    r._hub_config = config.pop("_hub_config", {})
     r._removing = False
     r._tmpl_warned = False
     r._accum_warned = False
@@ -119,6 +149,7 @@ def make_runner(**config):
         const.STATE_SNOOZE_UNTIL: None,
         const.STATE_RESCHEDULE_DATE: None,
         const.STATE_CARRY_FROM: None,
+        const.STATE_PROMPT_OPEN: False,
     }
     r._apply_config(config)
 
@@ -137,6 +168,12 @@ def make_runner(**config):
 
     def _self_remove():
         r._removing = True
+
+    # The template path needs a real HA Template; tests drive the anchor
+    # directly instead, which is what _is_scheduled actually consults.
+    r.condition_due = True
+    if not real_condition:
+        r._eval_condition = lambda: r.condition_due
 
     r._save_state = _save_state
     r._record_journal = _record_journal

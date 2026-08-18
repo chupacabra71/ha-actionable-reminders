@@ -33,9 +33,15 @@ a single engine that any input can feed:
 - **`until_done`** — an occurrence nobody answered carries to the following
   days until it's marked done, instead of being lost until the next scheduled
   date. `mandatory` is the within-a-day counterpart: it never auto-gives-up.
+- **Self-resolving conditions** — when a condition reminder's anchor clears on
+  its own (you did the thing without answering the prompt), the completion is
+  recorded and the delivered notification is retracted, rather than the reminder
+  just going quiet with nothing logged.
 - **Varied messaging** — lists of prompt / ack / dismiss messages.
 - **Per-reminder state tracking** — last prompt, last done, retries today,
   escalation state, auto-skip.
+- **Audit journal** — every close-out is logged with how it happened:
+  `done`, `skip`, `dismiss`, `auto_skip`, or `resolved` (cleared by itself).
 - Each reminder is exposed as a **switch** entity.
 
 ## Services

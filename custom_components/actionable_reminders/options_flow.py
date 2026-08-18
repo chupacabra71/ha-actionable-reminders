@@ -27,6 +27,7 @@ from .const import (
     CONF_DEFAULT_MAX_ESCALATIONS,
     CONF_EARLIEST_RETRY_TIME,
     CONF_DEFAULT_MOBILE_SERVICE,
+    CONF_CLEAR_NOTIFICATION_SERVICE,
     CONF_DEFAULT_ALEXA_DEVICES,
     CONF_REMINDERS_CALENDAR,
     CONF_DEFAULT_ACTIONABLE,
@@ -176,7 +177,17 @@ class ActionableRemindersHubOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ) if notify_services else str,
-            
+
+            vol.Optional(
+                CONF_CLEAR_NOTIFICATION_SERVICE,
+                description={"suggested_value": current_data.get(CONF_CLEAR_NOTIFICATION_SERVICE)},
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=notify_services,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ) if notify_services else str,
+
             vol.Optional(
                 CONF_DEFAULT_ALEXA_DEVICES,
                 default=current_data.get(CONF_DEFAULT_ALEXA_DEVICES, [])
