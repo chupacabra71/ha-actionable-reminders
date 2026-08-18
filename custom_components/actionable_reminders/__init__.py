@@ -10,6 +10,7 @@ This module handles:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from types import MappingProxyType
@@ -69,7 +70,7 @@ from .const import (
     DEFAULT_DISMISS_MESSAGES,
     WEEKDAYS,
 )
-from .reminder import ReminderRunner
+from .reminder import ReminderRunner, STATE_STORAGE_VERSION
 from .calendar_source import CalendarSource
 from .journal import ReminderJournal
 
@@ -224,6 +225,7 @@ async def _setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
 
     _prune_orphan_devices(hass, entry)
+    await _prune_orphan_state_stores(hass, entry)
 
     _LOGGER.info(
         "Actionable Reminders hub setup complete (%d reminders)",
@@ -248,6 +250,56 @@ def _prune_orphan_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
         ):
             _LOGGER.info("Removing orphaned reminder device: %s", device.name)
             dev_reg.async_remove_device(device.id)
+
+
+async def _prune_orphan_state_stores(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete state stores whose reminder no longer exists.
+
+    Each reminder keeps its runtime state in its own Store. Deleting a reminder
+    removes the subentry, but nothing removed that file — so every reminder ever
+    deleted left one behind. They are inert (nothing reads a store whose
+    reminder is gone) but they accumulate forever, and one will happily report
+    activity for something that no longer exists. The `once` self-removal path
+    always cleaned up after itself; the user-deletes-it path never did.
+
+    Mirrors _prune_orphan_devices: reconcile on setup, so this also clears what
+    earlier versions left behind rather than only preventing new ones.
+    """
+    keep: set[str] = set()
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_REMINDER:
+            continue
+        # The runner keys its store on `unique_id or subentry_id`; keep both, so
+        # a reminder is never orphaned by which of the two it happens to use.
+        keep.add(subentry.subentry_id)
+        if subentry.unique_id:
+            keep.add(subentry.unique_id)
+    if not keep:
+        # No reminders visible at all. That is indistinguishable from a partial
+        # or failed load, and pruning against an empty set would delete every
+        # reminder's state. Never prune blind.
+        _LOGGER.debug("No reminder subentries; skipping state-store prune")
+        return
+
+    prefix = f"{DOMAIN}_state_"
+    try:
+        names = await hass.async_add_executor_job(
+            os.listdir, hass.config.path(".storage")
+        )
+    except OSError as err:
+        _LOGGER.debug("Could not scan storage for orphaned state files: %s", err)
+        return
+
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        uid = name[len(prefix):]
+        # Skip anything with a suffix (.corrupt, HA's own backups) — those are
+        # not ours to reason about.
+        if "." in uid or uid in keep:
+            continue
+        _LOGGER.info("Removing state store for deleted reminder: %s", uid)
+        await Store(hass, STATE_STORAGE_VERSION, name).async_remove()
 
 
 async def async_remove_config_entry_device(

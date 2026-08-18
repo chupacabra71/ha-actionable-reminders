@@ -29,6 +29,8 @@ PKG_DIR = Path(__file__).resolve().parent.parent / "custom_components" / "action
 def _install_ha_stubs() -> None:
     def mod(name: str, **attrs) -> types.ModuleType:
         m = types.ModuleType(name)
+        # Make every stub a package so submodule imports resolve through it.
+        m.__path__ = []
         for k, v in attrs.items():
             setattr(m, k, v)
         sys.modules[name] = m
@@ -47,6 +49,28 @@ def _install_ha_stubs() -> None:
     mod("homeassistant.helpers.storage", Store=object)
     mod("homeassistant.helpers.template", Template=object)
     mod("homeassistant.util")
+    # Extra surface the package __init__ binds at import time.
+    mod("homeassistant.config_entries", ConfigEntry=object, ConfigSubentry=object)
+    mod("homeassistant.exceptions", HomeAssistantError=Exception,
+        ServiceNotFound=Exception, ServiceValidationError=Exception,
+        ConfigEntryNotReady=Exception)
+    mod("homeassistant.helpers.config_validation", boolean=bool, string=str,
+        positive_int=int, entity_id=str)
+    mod("homeassistant.helpers.device_registry",
+        async_get=lambda *a, **k: None, async_entries_for_config_entry=lambda *a, **k: [])
+    mod("homeassistant.helpers.entity_registry",
+        async_get=lambda *a, **k: None, async_entries_for_device=lambda *a, **k: [])
+    mod("homeassistant.helpers.typing", ConfigType=dict)
+    mod("homeassistant.helpers.start", async_at_started=lambda *a, **k: None)
+    sys.modules["homeassistant.const"].Platform = types.SimpleNamespace(
+        SWITCH="switch", TODO="todo", SENSOR="sensor"
+    )
+    for extra in ("ServiceCall", "ServiceResponse"):
+        setattr(sys.modules["homeassistant.core"], extra, object)
+    sys.modules["homeassistant.core"].SupportsResponse = types.SimpleNamespace(
+        OPTIONAL="optional", ONLY="only"
+    )
+    sys.modules["homeassistant.core"].callback = lambda f: f
 
     # A clock the tests drive. `now()` reads a module-level value so a test can
     # advance the day without rebuilding the reminder.
@@ -71,6 +95,9 @@ reminder_mod = importlib.import_module("ar.reminder")
 dt_util = sys.modules["homeassistant.util.dt"]
 
 ReminderRunner = reminder_mod.ReminderRunner
+# The package __init__ owns the storage reconcile; import it lazily so the
+# heavier stub surface above is only required by the tests that need it.
+init_mod = importlib.import_module("ar.__init__")
 
 
 class FakeStates:
