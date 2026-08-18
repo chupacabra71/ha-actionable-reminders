@@ -77,7 +77,6 @@ from .const import (
     CONF_CATCHUP_ON_ARRIVAL,
     CONF_QUIET_START,
     CONF_QUIET_END,
-    CONF_OPTIONAL,
     CONF_UNTIL_DONE,
     CONF_LEAD_TIMES,
     CONF_NAG,
@@ -109,6 +108,7 @@ from .const import (
     STATE_ACCUM_BASELINE,
     STATE_SNOOZE_UNTIL,
     STATE_RESCHEDULE_DATE,
+    STATE_CARRY_FROM,
     STATE_REPROMPT_COUNT,
     STATE_NEXT_NAG_MINUTES,
     DEFAULT_RETRY_INTERVAL,
@@ -127,7 +127,6 @@ from .const import (
     DEFAULT_CATCHUP_ON_ARRIVAL,
     DEFAULT_QUIET_START,
     DEFAULT_QUIET_END,
-    DEFAULT_OPTIONAL,
     DEFAULT_UNTIL_DONE,
     DEFAULT_LEAD_TIMES,
     DEFAULT_NAG,
@@ -227,6 +226,7 @@ class ReminderRunner:
             STATE_ACCUM_BASELINE: None,
             STATE_SNOOZE_UNTIL: None,
             STATE_RESCHEDULE_DATE: None,
+            STATE_CARRY_FROM: None,
         }
         self._store = Store(
             hass, STATE_STORAGE_VERSION, f"{DOMAIN}_state_{self.uid}"
@@ -355,7 +355,6 @@ class ReminderRunner:
         )
         
         # Behavior flags
-        self.optional = config.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)
         self.until_done = config.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)
         self.nag = config.get(CONF_NAG, DEFAULT_NAG)
         self.mandatory = config.get(CONF_MANDATORY, DEFAULT_MANDATORY)
@@ -590,12 +589,64 @@ class ReminderRunner:
         # so its escalation/auto-skip state bleeds across midnight (a reminder
         # that auto-skipped once would go permanently silent).
         if self._state.get(STATE_RESET_DAY) != today:
+            previous = self._state.get(STATE_RESET_DAY)
             self._state[STATE_RESET_DAY] = today
             self._state[STATE_RETRIES_TODAY] = 0
             self._state[STATE_ESCALATED] = False
             self._state[STATE_ESCALATIONS_TODAY] = 0
             self._state[STATE_AUTO_SKIPPED] = False
+            self._carry_unfinished_occurrence(previous, now.date())
             await self._save_state()
+
+    def _carry_unfinished_occurrence(self, previous: str | None, today: date) -> None:
+        """Mark an occurrence that ended unanswered as still outstanding.
+
+        Without this a scheduled reminder that is never answered is silently
+        lost: _is_due stops firing once the day rolls over, and _is_scheduled
+        matches recurring patterns on the occurrence's own date only — so an
+        unanswered Sunday reminder waits for the NEXT Sunday instead of coming
+        back on Monday.
+
+        Only the never-closed case is carried. done and skip both close the
+        occurrence by writing last_done for that date, so the scan steps over
+        them. _auto_skip writes last_done too, but sets the marker itself:
+        "stopped nagging for today" and "the chore is still outstanding" are
+        different claims, and only the first is what escalation exhaustion
+        established.
+
+        Condition reminders are excluded — their anchor stays true and re-arms
+        them daily on its own, so a marker would be redundant. The explicit
+        guard below is belt-and-braces: _date_matches_schedule already returns
+        False for them, so the scan could not set a marker regardless.
+        """
+        if not self.until_done or self.schedule_type == "condition":
+            return
+        if self._state.get(STATE_CARRY_FROM):
+            return  # already carrying an older occurrence — it stays the anchor
+        if not previous:
+            return  # first run for this reminder; no history to look back over
+        try:
+            start = date.fromisoformat(previous)
+        except (TypeError, ValueError):
+            return
+
+        # Walk every day since the last reset rather than just yesterday, so a
+        # multi-day gap (HA down, a long absence) still finds the occurrence it
+        # stepped over. Bounded so a stale marker can't spin the tick.
+        last_done = self._state.get(STATE_LAST_DONE)
+        for offset in range(max(min((today - start).days, 366), 0)):
+            d = start + timedelta(days=offset)
+            if not self._date_matches_schedule(d):
+                continue
+            if last_done == d.isoformat():
+                continue  # closed out that day (marked done, or skipped)
+            self._state[STATE_CARRY_FROM] = d.isoformat()
+            _LOGGER.info(
+                "Carrying unfinished occurrence for %s forward from %s",
+                self.name,
+                d.isoformat(),
+            )
+            return
 
     def _is_due(self, now: datetime) -> bool:
         """Check if reminder is currently due for prompting."""
@@ -657,6 +708,15 @@ class ReminderRunner:
                 target = None
             if target is not None:
                 return now.date() >= target
+
+        # An occurrence carried over from an earlier day stays due until it is
+        # closed out — the same "due on or after" shape as a reschedule. It sits
+        # after the time-of-day gate above so a carried reminder still prompts at
+        # its normal hour, and before the pattern match below because that only
+        # matches the occurrence's own date. Quiet hours, presence and the retry
+        # gate all still apply — they live in _is_due, not here.
+        if self._state.get(STATE_CARRY_FROM):
+            return True
 
         # Check schedule type
         if self.schedule_type == "daily":
@@ -870,6 +930,15 @@ class ReminderRunner:
         if resched and not done_today:
             try:
                 return date.fromisoformat(resched)
+            except (TypeError, ValueError):
+                pass
+        # A carried occurrence is the real due date. Without this the dashboard
+        # would advertise the next pattern date ("due in 5 days") while the
+        # reminder is actively prompting for the overdue one.
+        carry = self._state.get(STATE_CARRY_FROM)
+        if carry and not done_today:
+            try:
+                return date.fromisoformat(carry)
             except (TypeError, ValueError):
                 pass
         if self.schedule_type == "once":
@@ -1269,6 +1338,7 @@ class ReminderRunner:
         if not self.nag:
             await self._send_announcement(now, offset=0)
             self._state[STATE_LAST_DONE] = now.date().isoformat()
+            self._state[STATE_CARRY_FROM] = None
             await self._save_state()
             async_dispatcher_send(
                 self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
@@ -1833,9 +1903,10 @@ class ReminderRunner:
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
         self._state[STATE_AUTO_SKIPPED] = False
-        # Completion clears any pending snooze or reschedule.
+        # Completion clears any pending snooze, reschedule, or carried occurrence.
         self._state[STATE_SNOOZE_UNTIL] = None
         self._state[STATE_RESCHEDULE_DATE] = None
+        self._state[STATE_CARRY_FROM] = None
 
         # Accumulator re-anchor: capture the source's current value as the new
         # baseline so "accumulated since done" restarts from zero — this is what
@@ -2048,6 +2119,10 @@ class ReminderRunner:
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
         self._state[STATE_AUTO_SKIPPED] = False
+        # An explicit skip is a decision, not a missed prompt: it drops the
+        # occurrence outright. This is the way out of an until_done carry —
+        # which is also why mandatory reminders refuse to skip at all.
+        self._state[STATE_CARRY_FROM] = None
 
         await self._save_state()
         await self._record_journal("skip", context, source)
@@ -2187,6 +2262,8 @@ class ReminderRunner:
             _LOGGER.warning("Reschedule ignored — invalid date %s", new_date)
             return
         self._state[STATE_RESCHEDULE_DATE] = new_date
+        # The new date takes over as the pending occurrence.
+        self._state[STATE_CARRY_FROM] = None
         await self._save_state()
         await self._record_journal("reschedule", context, source)
         await self._send_ack(
@@ -2211,6 +2288,13 @@ class ReminderRunner:
         self._state[STATE_RETRIES_TODAY] = 0
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
+        # until_done: exhausting the escalations stops today's nagging, but the
+        # chore is still undone — mark it outstanding so tomorrow re-prompts
+        # with a fresh nag budget instead of waiting for the next occurrence.
+        if self.until_done and self.schedule_type != "condition":
+            self._state[STATE_CARRY_FROM] = (
+                self._state.get(STATE_CARRY_FROM) or today
+            )
 
         await self._save_state()
         await self._record_journal("auto_skip", source="auto")

@@ -33,6 +33,7 @@ from .const import (
     STATE_AUTO_SKIPPED,
     STATE_SNOOZE_UNTIL,
     STATE_RESCHEDULE_DATE,
+    STATE_CARRY_FROM,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ class ReminderSwitch(SwitchEntity):
             "mandatory": self._runner.mandatory,
             "snoozed_until": state.get(STATE_SNOOZE_UNTIL),
             "reschedule_date": state.get(STATE_RESCHEDULE_DATE),
-            "optional": self._runner.optional,
+            "carry_from": state.get(STATE_CARRY_FROM),
             "actionable": self._runner.actionable,
             "retry_interval": self._runner.retry_interval,
             "max_retries": self._runner.max_retries,

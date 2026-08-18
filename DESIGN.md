@@ -149,15 +149,15 @@ cooldown:         "03:00:00"
 escalation:
   retry_interval: 30m   max_retries: 5
   escalation_interval: 15m   max_escalations: 5   escalation_volume: 0.8
-  on_exhaust: defer_next_day | keep_until_done   # optional reminders may auto-skip
+  on_exhaust: defer_next_day | keep_until_done   # see until_done below; mandatory never exhausts
 availability:
   presence_required: true                         # someone home
   quiet_hours: {start: "21:30", end: "08:00"}
   respect_focus: true
 
 # ── Completion semantics ───────────────────────────────────────────────────
-until_done:   true
-optional:     false
+until_done:   true      # carry an unanswered occurrence day to day until done
+mandatory:    false     # never auto-give-up within a day; refuses skip/snooze/reschedule
 on_complete:                                      # generic side-effects (fixes the filter case)
   - action: input_button.press
     target: {entity_id: input_button.filter_reset}
@@ -204,8 +204,9 @@ subscriptions), **not** a busy loop.
    │                                        after max_retries ──▶ escalated ◀───────┘
    │                                          (louder, rotate devices, faster)
    │                                        after max_escalations ──▶ on_exhaust
-   │                                                                   ├─ optional → skipped(today)
-   │                                                                   └─ until_done → defer to next opportunity/day
+   │                                                       (mandatory never exhausts)
+   │                                                                   ├─ until_done → carry to next day, fresh nag budget
+   │                                                                   └─ otherwise  → skipped(today), waits for next occurrence
    └────────────────────────── done ◀── ack("yes"/tap/complete) ── run on_complete, compute next_due
                                snoozed ◀── "not yet"/snooze(duration) ── re-surface later
 ```

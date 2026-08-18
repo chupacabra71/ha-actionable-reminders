@@ -30,8 +30,9 @@ a single engine that any input can feed:
 - **Presence + quiet hours** — gate prompts on presence sensors and a quiet
   window; optional **catch-up on arrival** so a missed reminder fires when you
   get home.
-- **`until_done` / `optional`** — keep prompting until acknowledged, or allow
-  auto-skip.
+- **`until_done`** — an occurrence nobody answered carries to the following
+  days until it's marked done, instead of being lost until the next scheduled
+  date. `mandatory` is the within-a-day counterpart: it never auto-gives-up.
 - **Varied messaging** — lists of prompt / ack / dismiss messages.
 - **Per-reminder state tracking** — last prompt, last done, retries today,
   escalation state, auto-skip.

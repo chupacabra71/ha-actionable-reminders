@@ -142,8 +142,7 @@ CONF_QUIET_START = "quiet_start"                                 # Quiet hours s
 CONF_QUIET_END = "quiet_end"                                     # Quiet hours end (HH:MM)
 
 # Behavior flags
-CONF_OPTIONAL = "optional"                                       # Optional reminder (can auto-skip)
-CONF_UNTIL_DONE = "until_done"                                   # Keep prompting until marked done
+CONF_UNTIL_DONE = "until_done"                                   # Carry an unfinished occurrence to the next day
 CONF_LEAD_TIMES = "lead_times"                                   # Pre-notification offsets (days before due)
 CONF_ALLOW_CRITICAL = "allow_critical"  # Opt-in: escalate to DND-bypassing CRITICAL
 CONF_NAG = "nag"                                               # Post-due nag-until-done (False = single announce)
@@ -165,6 +164,7 @@ STATE_RESET_DAY = "reset_day"                                    # Date (YYYY-MM
 STATE_ACCUM_BASELINE = "accumulator_baseline"                    # Source value captured at last completion (accumulator mode)
 STATE_SNOOZE_UNTIL = "snooze_until"                              # ISO datetime; not due before this (snooze)
 STATE_RESCHEDULE_DATE = "reschedule_date"                        # ISO date; overrides the next occurrence (reschedule_next)
+STATE_CARRY_FROM = "carry_from"                                  # ISO date of an unfinished occurrence carried forward (until_done)
 STATE_REPROMPT_COUNT = "reprompt_count"                          # Voice-clarification reprompts used this cycle
 STATE_NEXT_NAG_MINUTES = "next_nag_minutes"                      # Adaptive minutes until the next nag (picked per prompt)
 
@@ -205,8 +205,7 @@ DEFAULT_SCHEDULE_TIME = "09:00"
 DEFAULT_ENABLED = True
 DEFAULT_ESCALATION_VOLUME = 0.8                                  # 80% volume during escalation
 DEFAULT_CATCHUP_ON_ARRIVAL = True
-DEFAULT_OPTIONAL = False                                         # Mandatory by default
-DEFAULT_UNTIL_DONE = True                                        # Keep prompting until done
+DEFAULT_UNTIL_DONE = True                                        # Carry unfinished occurrences forward
 
 # Message defaults
 DEFAULT_PROMPT_MESSAGE = "Did you complete: {reminder_name}?"

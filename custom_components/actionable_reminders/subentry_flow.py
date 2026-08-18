@@ -69,14 +69,12 @@ from .const import (
     CONF_QUIET_END,
     DEFAULT_NAG,
     DEFAULT_ALLOW_CRITICAL,
-    DEFAULT_OPTIONAL,
     DEFAULT_UNTIL_DONE,
     DEFAULT_ACTIONABLE,
     DEFAULT_ESCALATION_VOLUME,
     DEFAULT_CATCHUP_ON_ARRIVAL,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
-    CONF_OPTIONAL,
     CONF_UNTIL_DONE,
     WEEKDAY_LABELS,
     MONTHLY_WEEK_LABELS,
@@ -482,7 +480,6 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 CONF_ALLOW_CRITICAL, default=d.get(CONF_ALLOW_CRITICAL, DEFAULT_ALLOW_CRITICAL)
             ): bool,
             vol.Optional("lead_times_text", default=lead_default): selector.TextSelector(),
-            vol.Required(CONF_OPTIONAL, default=d.get(CONF_OPTIONAL, DEFAULT_OPTIONAL)): bool,
             vol.Required(CONF_UNTIL_DONE, default=d.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)): bool,
             vol.Required(CONF_MANDATORY, default=d.get(CONF_MANDATORY, False)): bool,
         })
@@ -669,7 +666,7 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
 
         # Behavior + advanced: copy through whatever the wizard collected.
         for key in (
-            CONF_NAG, CONF_MANDATORY, CONF_ALLOW_CRITICAL, CONF_OPTIONAL, CONF_UNTIL_DONE, CONF_LEAD_TIMES,
+            CONF_NAG, CONF_MANDATORY, CONF_ALLOW_CRITICAL, CONF_UNTIL_DONE, CONF_LEAD_TIMES,
             CONF_MOBILE_SERVICE, CONF_ALEXA_DEVICES, CONF_ACTIONABLE, CONF_ESCALATION_VOLUME,
             CONF_RETRY_INTERVAL, CONF_MAX_RETRIES, CONF_ESCALATION_INTERVAL, CONF_MAX_ESCALATIONS, CONF_RESPONSE_WINDOW, CONF_NAG_MIN_GAP, CONF_NAG_MAX_GAP, CONF_NAG_FRACTION,
             CONF_PRESENCE_SENSORS, CONF_CATCHUP_ON_ARRIVAL, CONF_QUIET_START, CONF_QUIET_END,
