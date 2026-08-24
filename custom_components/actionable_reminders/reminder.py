@@ -155,6 +155,23 @@ _LOGGER = logging.getLogger(__name__)
 # Tick interval for reminder checking (every minute)
 TICK_INTERVAL = timedelta(minutes=1)
 
+# The Alexa Actionable Notifications skill reads its prompt out of
+# input_text.alexa_actionable_notification, which HA caps at 255 characters. The
+# switchboard wraps our text as
+#   {"text": "<message>", "event": "<tag>", "suppress_confirmation": "False"}
+# — 61 characters of wrapper plus the tag, leaving the rest for the message.
+#
+# Overflow is NOT truncated and NOT silent-but-harmless: input_text.set_value
+# rejects the whole value (a WARNING, not an exception), the previous payload
+# stays in the box, and the helper script goes on to launch the skill anyway —
+# so Alexa speaks the LAST prompt that fit. Observed 2026-08-24, where an
+# over-long umbrella ask made Alexa re-ask Sunday's already-completed recycling
+# reminder. The helper now budgets and refuses to launch on a rejected write;
+# warn here too, because truncation eats the tail — which is where the reply
+# hint ("say yes, no, skip it, or snooze it") lives.
+ALEXA_PAYLOAD_LIMIT = 255
+ALEXA_WRAPPER_OVERHEAD = 61
+
 # Storage version for per-reminder runtime state (kept out of the config entry
 # so saving state never triggers a config-update / reconfigure cycle).
 STATE_STORAGE_VERSION = 1
@@ -1784,14 +1801,27 @@ class ReminderRunner:
             severity = "CRITICAL"
         else:
             severity = "TIME-SENSITIVE"
+        speech = self._speech_safe(message)
+        tag = f"ar_{self.entry_id}"
+        budget = ALEXA_PAYLOAD_LIMIT - ALEXA_WRAPPER_OVERHEAD - len(tag)
+        if len(speech) > budget:
+            _LOGGER.warning(
+                "Prompt for %s is %d chars, %d over the Alexa payload budget of "
+                "%d — the spoken text will be cut from the end, taking the reply "
+                "hint with it. Shorten the message or the reminder name.",
+                self.name,
+                len(speech),
+                len(speech) - budget,
+                budget,
+            )
         data = {
             "method": "all",
             "who": "all",
             "alert_volume": volume,
             "severity": severity,
             "title": "🔔 Reminder",
-            "message": self._speech_safe(message),
-            "tag": f"ar_{self.entry_id}",
+            "message": speech,
+            "tag": tag,
             # Keep the mobile Done/Not-yet buttons live for the response window
             # (tunable: per-reminder override -> hub default -> 15 min). Alexa's
             # voice window is Amazon-capped at ~30-60s regardless; the switchboard
