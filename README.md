@@ -96,6 +96,21 @@ data:
   response_variable: new_reminder   # -> {entry_id, name}
 ```
 
+Prompt messages are rendered as templates, so a condition reminder can say
+which entity tripped it instead of listing everything it watches:
+
+```yaml
+message: >
+  {% set dark = expand('sensor.a','sensor.b')
+       | selectattr('state','in',['unavailable','unknown'])
+       | map(attribute='name') | list %}
+  Data source dark: {{ dark | join(', ') }}.
+```
+
+They render against the same `days_since_done` / `last_done` variables as
+`due_template`. A message with no `{{` or `{%` in it is used as-is, and one
+that fails to render falls back to its own text rather than going silent.
+
 ## Notifications
 
 - **Mobile** — actionable notifications with Done / Not-Yet buttons.

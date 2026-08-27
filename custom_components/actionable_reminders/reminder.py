@@ -257,6 +257,7 @@ class ReminderRunner:
         self._started = False
         self._removing = False        # set while the reminder is being removed
         self._tmpl_warned = False     # de-spam due_template render errors
+        self._prompt_tmpl_warned = False  # de-spam prompt-message render errors
         self._accum_warned = False    # de-spam accumulator source-read errors
         self._thresh_latched = False  # in-memory hysteresis latch (threshold mode)
         self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
@@ -1133,16 +1134,15 @@ class ReminderRunner:
             return f"Due in {d}d"
         return "OK"
 
-    def _eval_due_template(self) -> bool:
-        """Render the condition source's due_template to a bool.
+    def _template_extras(self) -> dict[str, Any]:
+        """Variables every template this reminder renders can read.
 
-        Exposes `days_since_done` (int; a large number if never done) and
-        `last_done` (ISO date string or None) to the template, so a condition
-        can combine an interval with a state check, e.g.
-        `{{ days_since_done >= 7 and temp > 55 }}`.
+        `days_since_done` (int; a large number if never done) and `last_done`
+        (ISO date string or None) let a condition combine an interval with a
+        state check, e.g. `{{ days_since_done >= 7 and temp > 55 }}`. The
+        prompt renders against the same names so a message can quote the
+        figure its condition just decided on.
         """
-        if not self.due_template:
-            return False
         last_done = self._state.get(STATE_LAST_DONE)
         days_since = 99999
         if last_done:
@@ -1150,9 +1150,15 @@ class ReminderRunner:
                 days_since = (dt_util.now().date() - date.fromisoformat(last_done)).days
             except (TypeError, ValueError):
                 days_since = 99999
+        return {"days_since_done": days_since, "last_done": last_done}
+
+    def _eval_due_template(self) -> bool:
+        """Render the condition source's due_template to a bool."""
+        if not self.due_template:
+            return False
         try:
             res = Template(self.due_template, self.hass).async_render(
-                {"days_since_done": days_since, "last_done": last_done}
+                self._template_extras()
             )
         except Exception as e:  # noqa: BLE001
             # Log once, not every tick, so a broken template doesn't spam the log.
@@ -1525,6 +1531,7 @@ class ReminderRunner:
             message = random.choice(self.prompt_messages)
         else:
             message = f"🔔 {self.name}"
+        message = self._render_prompt(message)
         _LOGGER.info("Announcing for %s: %s", self.name, message)
         await self._announce(message)
 
@@ -1561,6 +1568,47 @@ class ReminderRunner:
         task = self.hass.loop.create_task(coro, context=contextvars.Context())
         self._pending_notifications.add(task)
         task.add_done_callback(self._pending_notifications.discard)
+
+    def _render_prompt(self, text: str) -> str:
+        """Render a user-authored message as a template, if it is one.
+
+        A condition reminder knows exactly which entity tripped it — the
+        due_template just read them all — but the message it sent could only
+        ever be a fixed string, so it had to guess out loud ("check the
+        robots, the rain gauge and the forecast sensor") while the engine knew
+        it was one dead vacuum. Rendering the message closes that gap: it is
+        written in the same expressions the condition is, against the same
+        variables, and can name the culprit.
+
+        Plain strings are returned untouched, so nothing that isn't a template
+        pays for one. A broken template falls back to its own source rather
+        than to silence — an odd-sounding prompt still beats a reminder that
+        never arrives, which is the failure the due_template's own guard is
+        also written around.
+
+        `parse_result=False` keeps the render a string: HA otherwise coerces
+        anything that looks like a number or a list into that type, and a
+        message rendering to "1,6" would come back as a list.
+
+        Whitespace is collapsed because the `{% %}` blocks a list-building
+        template needs render as the newlines and indentation they sit on, and
+        this text is both spoken aloud and squeezed through a 255-character
+        payload.
+        """
+        if "{{" not in text and "{%" not in text:
+            return text
+        try:
+            rendered = Template(text, self.hass).async_render(
+                self._template_extras(), parse_result=False
+            )
+        except Exception as e:  # noqa: BLE001
+            # Log once, not every prompt, so a broken template doesn't spam.
+            if not self._prompt_tmpl_warned:
+                _LOGGER.warning("prompt template error for %s: %s", self.name, e)
+                self._prompt_tmpl_warned = True
+            return text
+        self._prompt_tmpl_warned = False
+        return re.sub(r"\s+", " ", str(rendered)).strip()
 
     def _with_subject(self, text: str) -> str:
         """Substitute {subject} with the reminder name and make it speakable.
@@ -1660,6 +1708,7 @@ class ReminderRunner:
             prompt = random.choice(self.prompt_messages)
         else:
             prompt = f"Did you complete: {self.name}?"
+        prompt = self._render_prompt(prompt)
 
         # Actionable prompts ask for a Yes/No, so append a rotating question and
         # keep the stored message purely factual. Non-actionable announcements
