@@ -160,6 +160,7 @@ def make_runner(**config):
     r._hub_config = config.pop("_hub_config", {})
     r._removing = False
     r._tmpl_warned = False
+    r._prompt_tmpl_warned = False
     r._accum_warned = False
     r._thresh_latched = False
     r._display_fingerprint = None

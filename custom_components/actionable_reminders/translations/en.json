@@ -33,7 +33,7 @@
           "data_description": {
             "reminder_name": "A short name, e.g. \"Give dogs meds\" or \"Change A/C filter\".",
             "schedule_type": "Repeating (every N days/weeks/months/years, with weekday or day-of-month detail), a one-time date, or driven by a condition.",
-            "message": "What you'll be asked, e.g. \"Did you give the dogs their meds?\""
+            "message": "What you'll be asked, e.g. \"Did you give the dogs their meds?\" Templates are rendered, so a condition reminder can name what tripped it."
           }
         },
         "schedule": {
