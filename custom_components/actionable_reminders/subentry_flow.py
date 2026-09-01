@@ -20,6 +20,7 @@ from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
+from .reminder import spoken_overrun
 from .const import (
     CONF_REMINDER_NAME,
     CONF_SCHEDULE_TYPE,
@@ -166,9 +167,21 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
     async def async_step_basics(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         if user_input is not None:
             self._data.update(user_input)
-            return await self.async_step_schedule()
+            # Measured as if it will be asked rather than announced: the
+            # behaviour step comes later, the hub default asks for a reply, and
+            # a message that fits when asked also fits when merely announced.
+            over = spoken_overrun(
+                str(user_input.get("message") or ""),
+                str(user_input.get(CONF_REMINDER_NAME) or ""),
+            )
+            if not over:
+                return await self.async_step_schedule()
+            errors["message"] = "message_too_long"
+            placeholders["over"] = str(over)
 
         d = self._data
         schema = vol.Schema({
@@ -193,7 +206,12 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 description={"suggested_value": d.get("message")},
             ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
         })
-        return self.async_show_form(step_id="basics", data_schema=schema)
+        return self.async_show_form(
+            step_id="basics",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders=placeholders or None,
+        )
 
     # ── step 2: schedule detail ─────────────────────────────────────────────
 

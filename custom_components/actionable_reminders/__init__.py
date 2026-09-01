@@ -70,7 +70,7 @@ from .const import (
     DEFAULT_DISMISS_MESSAGES,
     WEEKDAYS,
 )
-from .reminder import ReminderRunner, STATE_STORAGE_VERSION
+from .reminder import ReminderRunner, STATE_STORAGE_VERSION, spoken_overrun
 from .calendar_source import CalendarSource
 from .journal import ReminderJournal
 
@@ -580,6 +580,16 @@ async def _register_services(hass: HomeAssistant) -> None:
         name = d["name"]
         stype = d.get("schedule_type", "once")
         time_val = d.get("time")
+        if d.get("message"):
+            # Same guard as set_messages: a reminder created over-long would
+            # only reveal it on its first ask, mid-truncation.
+            over = spoken_overrun(str(d["message"]), name)
+            if over:
+                raise HomeAssistantError(
+                    f"Message is {over} characters too long to speak in full "
+                    f"({len(d['message'])} chars; the reminder appends its own "
+                    f"question and reply hint). Shorten it and try again."
+                )
         config: dict[str, Any] = {
             CONF_REMINDER_NAME: name,
             CONF_SCHEDULE_TYPE: stype,
@@ -644,6 +654,17 @@ async def _register_services(hass: HomeAssistant) -> None:
         runner = _get_runner_by_id(hass, entry_id)
         if runner is None:
             raise HomeAssistantError(f"Reminder not found: {entry_id}")
+        # Refuse a message that cannot be spoken in full. Catching it here means
+        # the author finds out now, at the keyboard, rather than from a prompt
+        # that goes out sounding fine but ends before the reply hint.
+        for m in messages:
+            over = spoken_overrun(m, runner.name, runner.actionable, entry_id)
+            if over:
+                raise HomeAssistantError(
+                    f"Message is {over} characters too long to speak in full "
+                    f"({len(m)} chars; the engine appends its own question and "
+                    f"reply hint). Shorten it and try again: {m[:60]}..."
+                )
         hass.config_entries.async_update_subentry(
             runner._hub_entry,
             runner._subentry,
