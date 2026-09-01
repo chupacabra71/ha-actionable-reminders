@@ -1950,10 +1950,12 @@ class ReminderRunner:
                         }
                     ],
                     # A spoken reply that isn't yes/no makes the Alexa skill fire
-                    # ResponseNone; the script runs timeout_actions for that (even
-                    # without run_timeout_actions, so a silent no-answer stays
-                    # quiet). Treat it as "not yet" — dismiss speaks a rotating
-                    # "I'll remind you again" and logs it, cueing a proper yes/no.
+                    # ResponseNone. While the phone window is still open the
+                    # switchboard answers that with no_answer_feedback below and
+                    # keeps waiting, so this runs only when the window itself
+                    # expires — a genuine silent no-answer. Treat it as "not
+                    # yet": journal it and restart the gap clock, but say
+                    # nothing, since by then there is nobody to say it to.
                     "timeout_actions": [
                         {
                             "action": f"{DOMAIN}.dismiss",
@@ -2226,9 +2228,19 @@ class ReminderRunner:
         await self._save_state()
         await self._record_journal("dismiss", context, source)
 
-        # Send dismissal acknowledgment
-        dismiss_msg = random.choice(self.dismiss_messages)
-        await self._send_ack(dismiss_msg)
+        # A timeout is not an answer, so it is not acknowledged out loud.
+        # "No problem, I'll remind you about the septic filter again later" is
+        # a reply to a person, and on a timeout there was no person: it lands a
+        # full response window after the question, with nothing audible in
+        # between, so it reads as the reminder talking to itself. It is also
+        # the ONLY thing heard when the prompt never reached the speaker at all
+        # — an over-long payload, an Echo that was busy — which is how a
+        # household ends up hearing acknowledgements for questions nobody was
+        # ever asked. Silence keeps the reminder alive; the retry cadence is
+        # what says so, and the mobile card is already cleared by the caller.
+        if source != "timeout":
+            dismiss_msg = random.choice(self.dismiss_messages)
+            await self._send_ack(dismiss_msg)
         
         # Notify switch entity
         async_dispatcher_send(
