@@ -111,6 +111,15 @@ They render against the same `days_since_done` / `last_done` variables as
 `due_template`. A message with no `{{` or `{%` in it is used as-is, and one
 that fails to render falls back to its own text rather than going silent.
 
+A message that could not be spoken in full is refused when you save it — by the
+wizard, `create_reminder` and `set_messages` alike. The spoken payload is capped
+at 255 characters, of which the JSON wrapper and event id take 90, and an
+actionable reminder appends its own question and reply hint on top of whatever
+you wrote. Over-long text is not rejected at send time, it is truncated from the
+end — which is where the reply hint lives — so the prompt goes out sounding fine
+and offers no way to answer it. Templates are left to the send-time warning,
+since their rendered length is only knowable then.
+
 ## Notifications
 
 - **Mobile** — actionable notifications with Done / Not-Yet buttons.

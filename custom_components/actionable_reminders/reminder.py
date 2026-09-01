@@ -172,9 +172,53 @@ TICK_INTERVAL = timedelta(minutes=1)
 ALEXA_PAYLOAD_LIMIT = 255
 ALEXA_WRAPPER_OVERHEAD = 61
 
+# Every reminder's Alexa event id is "ar_" + its 26-character subentry ULID, so
+# the budget below is the same for all of them — and a reminder being edited in
+# the wizard does not have its id yet.
+_ENTRY_ID_LEN = 26
+
 # Storage version for per-reminder runtime state (kept out of the config entry
 # so saving state never triggers a config-update / reconfigure cycle).
 STATE_STORAGE_VERSION = 1
+
+
+def spoken_budget(entry_id: str | None = None) -> int:
+    """Characters available for one reminder's whole spoken line."""
+    tag_len = len("ar_") + (len(entry_id) if entry_id else _ENTRY_ID_LEN)
+    return ALEXA_PAYLOAD_LIMIT - ALEXA_WRAPPER_OVERHEAD - tag_len
+
+
+def spoken_overrun(
+    message: str,
+    name: str,
+    actionable: bool = True,
+    entry_id: str | None = None,
+) -> int:
+    """How far this message would overrun the spoken payload, 0 if it fits.
+
+    Measured against the LONGEST question in whichever pool the name selects,
+    because the engine draws one at random per ask. A message sized against the
+    average is the one that fits on Monday and truncates on Tuesday — the
+    hardest version of this to diagnose, since the prompt still goes out and
+    still sounds fine, just without the reply hint on the end.
+
+    Non-actionable reminders announce rather than ask, so they carry no
+    appended question or hint and are measured bare. A template returns 0: its
+    rendered length is only knowable at send time, where the engine's own
+    warning covers it.
+    """
+    if "{{" in message or "{%" in message:
+        return 0
+    decoration = 0
+    if actionable:
+        pool = (
+            DEFAULT_BIRTHDAY_QUESTION_PHRASES
+            if "birthday" in name.lower()
+            else DEFAULT_QUESTION_PHRASES
+        )
+        # +2 for the spaces _decorate_prompt joins the three parts with.
+        decoration = max(len(p) for p in pool) + len(DEFAULT_RESPONSE_HINT) + 2
+    return max(0, len(message) + decoration - spoken_budget(entry_id))
 
 
 def _time_parts(value: Any, fallback: tuple[int, int] = (0, 0)) -> tuple[int, int]:
@@ -1852,12 +1896,12 @@ class ReminderRunner:
             severity = "TIME-SENSITIVE"
         speech = self._speech_safe(message)
         tag = f"ar_{self.entry_id}"
-        budget = ALEXA_PAYLOAD_LIMIT - ALEXA_WRAPPER_OVERHEAD - len(tag)
+        budget = spoken_budget(self.entry_id)
         if len(speech) > budget:
             _LOGGER.warning(
                 "Prompt for %s is %d chars, %d over the Alexa payload budget of "
                 "%d — the spoken text will be cut from the end, taking the reply "
-                "hint with it. Shorten the message or the reminder name.",
+                "hint with it. Shorten the message.",
                 self.name,
                 len(speech),
                 len(speech) - budget,

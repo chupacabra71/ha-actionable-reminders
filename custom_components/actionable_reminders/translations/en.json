@@ -188,6 +188,9 @@
       "abort": {
         "already_configured": "A reminder with that name already exists.",
         "reconfigure_successful": "Reminder updated."
+      },
+      "error": {
+        "message_too_long": "That message is {over} characters too long to be spoken in full. The reminder appends its own question and reply hint (about 60 characters) before it is read out, and anything past the limit is cut from the end — taking the reply hint with it. Shorten the message."
       }
     }
   },
