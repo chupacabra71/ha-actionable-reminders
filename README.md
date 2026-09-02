@@ -56,6 +56,8 @@ a single engine that any input can feed:
 | `actionable_reminders.reschedule_next` | `entry_id`, `date` | Move the next due date (scheduled reminders only) |
 | `actionable_reminders.set_accumulator_baseline` | `entry_id`, `baseline` | Re-anchor an accumulator's counter without completing |
 | `actionable_reminders.create_reminder` | `name`, `schedule_type`, … | Create a reminder by voice / automation; returns the new `entry_id` |
+| `actionable_reminders.update_reminder` | `entry_id`, any field to change | Edit an existing reminder in place; returns the keys that changed |
+| `actionable_reminders.set_messages` | `entry_id`, `messages` | Replace the prompt message pool |
 
 ### Creating reminders programmatically
 
@@ -95,6 +97,54 @@ data:
   due_template: "{{ is_state('binary_sensor.softener_low','on') }}"
   response_variable: new_reminder   # -> {entry_id, name}
 ```
+
+### Updating reminders programmatically
+
+`update_reminder` is the wizard's Save without the wizard. It takes the
+reminder's `entry_id` plus **only the fields you want to change** — everything
+else is carried through untouched, so moving a prompt time cannot quietly drop
+the reminder's presence sensors or quiet hours.
+
+```yaml
+# Move the time and make it mandatory
+action: actionable_reminders.update_reminder
+data:
+  entry_id: "{{ state_attr('switch.water_the_ferns','entry_id') }}"
+  time: "07:30"
+  mandatory: true
+
+# Retarget an accumulator at a new sensor
+action: actionable_reminders.update_reminder
+data:
+  entry_id: "01ABC..."
+  accumulator_source: sensor.hvac_runtime_hours
+  accumulator_limit: 300
+
+# Send an override back to the hub default
+action: actionable_reminders.update_reminder
+data:
+  entry_id: "01ABC..."
+  clear: [retry_interval, quiet_start]
+  response_variable: changed   # -> {entry_id, name, changed: [...]}
+```
+
+Three things it will not let you do halfway:
+
+- **Switching `schedule_type` discards the old type's schedule keys** and
+  requires the new one's in the same call — a reminder never carries two
+  contradictory schedules. The same applies within a repeating reminder:
+  changing `unit` from weeks to months takes the weekday list with it, and
+  changing `condition_mode` drops the previous mode's settings.
+- **A half-configured condition is refused.** An accumulator without a limit,
+  or a threshold with neither bound, loads fine and is simply never due — the
+  one failure mode that looks like nothing at all.
+- **`clear` only accepts optional overrides.** Clearing a schedule field would
+  leave a reminder that cannot say when it is due.
+
+Editing does not touch runtime state: last-done, retry counters, and snooze
+survive, and the switch keeps its `entity_id` even when you rename the reminder
+(its display name changes, the id does not). `on_complete` actions stay
+wizard-only — a script sequence is not a service field.
 
 Prompt messages are rendered as templates, so a condition reminder can say
 which entity tripped it instead of listing everything it watches:

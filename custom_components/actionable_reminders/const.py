@@ -382,4 +382,5 @@ SERVICE_SET_ACCUM_BASELINE = "set_accumulator_baseline"          # Set an accumu
 SERVICE_SNOOZE = "snooze"                                        # Defer a reminder (data: entry_id, duration)
 SERVICE_RESCHEDULE = "reschedule_next"                           # Move the next due date (data: entry_id, date)
 SERVICE_CREATE = "create_reminder"                               # Create a reminder programmatically / by voice (returns entry_id)
+SERVICE_UPDATE = "update_reminder"                               # Edit an existing reminder's config in place (returns what changed)
 SERVICE_SET_MESSAGES = "set_messages"                            # Replace a reminder's prompt message list (data: entry_id, messages)
