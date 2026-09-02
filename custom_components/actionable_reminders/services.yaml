@@ -579,6 +579,14 @@ update_reminder:
       required: false
       selector:
         boolean:
+    announce_when_away:
+      name: Announce even when away
+      description: >-
+        For household chores. Normally spoken only while the addressed person is home;
+        with this on it is spoken to whoever IS home. An empty house stays silent.
+      required: false
+      selector:
+        boolean:
     lead_times:
       name: Lead times (days before)
       description: Pre-notification offsets in days before due (e.g. [7, 1]).

@@ -146,6 +146,7 @@ CONF_QUIET_END = "quiet_end"                                     # Quiet hours e
 CONF_UNTIL_DONE = "until_done"                                   # Carry an unfinished occurrence to the next day
 CONF_LEAD_TIMES = "lead_times"                                   # Pre-notification offsets (days before due)
 CONF_ALLOW_CRITICAL = "allow_critical"  # Opt-in: escalate to DND-bypassing CRITICAL
+CONF_ANNOUNCE_WHEN_AWAY = "announce_when_away"  # Speak to whoever IS home, not only the addressed person
 CONF_NAG = "nag"                                               # Post-due nag-until-done (False = single announce)
 CONF_MANDATORY = "mandatory"                                    # Cannot be skipped/snoozed/rescheduled; never auto-skips
 
@@ -196,6 +197,7 @@ DEFAULT_ACTIONABLE = True                                        # Actionable by
 DEFAULT_MASTER_ENABLED = True                                    # Master switch on by default
 DEFAULT_LEAD_TIMES = []                                          # No pre-notifications by default
 DEFAULT_ALLOW_CRITICAL = False  # Never bypass DND unless explicitly opted in
+DEFAULT_ANNOUNCE_WHEN_AWAY = False  # Personal reminders follow the person; household chores opt in
 DEFAULT_NAG = True                                             # Nag until done by default
 DEFAULT_MANDATORY = False                                        # Reminders are skippable unless marked mandatory
 DEFAULT_QUIET_START = "22:00"                                    # 10 PM

@@ -83,6 +83,7 @@ from .const import (
     CONF_MANDATORY,
     CONF_CLEAR_NOTIFICATION_SERVICE,
     CONF_ALLOW_CRITICAL,
+    CONF_ANNOUNCE_WHEN_AWAY,
     CONF_DEFAULT_RETRY_INTERVAL,
     CONF_DEFAULT_MAX_RETRIES,
     CONF_DEFAULT_ESCALATION_INTERVAL,
@@ -134,6 +135,7 @@ from .const import (
     DEFAULT_NAG,
     DEFAULT_MANDATORY,
     DEFAULT_ALLOW_CRITICAL,
+    DEFAULT_ANNOUNCE_WHEN_AWAY,
     DEFAULT_ENABLED,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
@@ -367,6 +369,13 @@ class ReminderRunner:
         self.actionable = config.get(
             CONF_ACTIONABLE,
             self._hub_config.get(CONF_DEFAULT_ACTIONABLE, DEFAULT_ACTIONABLE)
+        )
+        # A chore is the household's, not one person's: the dogs still need
+        # their meds while whoever set the reminder is out. Opted in per
+        # reminder — the switchboard's voice gate follows the addressed person
+        # by default, which is right for anything personal and wrong for this.
+        self.announce_when_away = config.get(
+            CONF_ANNOUNCE_WHEN_AWAY, DEFAULT_ANNOUNCE_WHEN_AWAY
         )
         self.escalation_volume = config.get(CONF_ESCALATION_VOLUME, DEFAULT_ESCALATION_VOLUME)
         
@@ -1698,6 +1707,7 @@ class ReminderRunner:
                 "title": "🔔 Reminder",
                 "message": message,
                 "tag": f"ar_{self.entry_id}",
+                **({"voice_any_resident": True} if self.announce_when_away else {}),
             }
             if self.alexa_devices:
                 data["alexa_device"] = self.alexa_devices[0]
@@ -1915,6 +1925,10 @@ class ReminderRunner:
             "title": "🔔 Reminder",
             "message": speech,
             "tag": tag,
+            # Ask the switchboard to speak to whoever is home rather than to
+            # the addressed person only. Omitted entirely when off, so a
+            # switchboard that predates the field is unaffected.
+            **({"voice_any_resident": True} if self.announce_when_away else {}),
             # Keep the mobile Done/Not-yet buttons live for the response window
             # (tunable: per-reminder override -> hub default -> 15 min). Alexa's
             # voice window is Amazon-capped at ~30-60s regardless; the switchboard

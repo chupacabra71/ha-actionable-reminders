@@ -170,6 +170,22 @@ end — which is where the reply hint lives — so the prompt goes out sounding 
 and offers no way to answer it. Templates are left to the send-time warning,
 since their rendered length is only knowable then.
 
+## Household chores vs personal reminders
+
+Voice delivery follows the person a notification is addressed to: while they are
+out, nothing is spoken on Alexa and the reminder goes to the phone alone. That
+is right for anything personal and wrong for a chore — the dogs still need their
+meds, and someone else is standing in the kitchen.
+
+Turn on **Announce even when the addressed person is away** (wizard, or
+`announce_when_away` on `create_reminder` / `update_reminder`) and the
+notification asks to be spoken to whoever *is* home instead. An empty house
+stays silent; the reminder comes back on its next nag.
+
+The engine only passes the request — `voice_any_resident: true` on the payload —
+and the notification script owns the presence rule. The key is omitted entirely
+when the flag is off, so a notification script that predates it is unaffected.
+
 ## Notifications
 
 - **Mobile** — actionable notifications with Done / Not-Yet buttons.
