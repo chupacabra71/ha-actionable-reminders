@@ -45,6 +45,7 @@ from .const import (
     SERVICE_RESCHEDULE,
     SERVICE_CALENDAR_ACK,
     SERVICE_CREATE,
+    SERVICE_UPDATE,
     SERVICE_SET_MESSAGES,
     SIGNAL_REMINDERS_UPDATED,
     CONF_REMINDER_NAME,
@@ -64,13 +65,22 @@ from .const import (
     CONF_CONDITION_MODE,
     CONF_DUE_TEMPLATE,
     CONF_MANDATORY,
+    CONF_ACTIONABLE,
     CONF_LEAD_TIMES,
     DEFAULT_SCHEDULE_TIME,
     DEFAULT_ACK_MESSAGES,
     DEFAULT_DISMISS_MESSAGES,
+    MONTHLY_WEEKS,
     WEEKDAYS,
 )
 from .reminder import ReminderRunner, STATE_STORAGE_VERSION, spoken_overrun
+from .reminder_config import (
+    CLEARABLE,
+    CONDITION_MODES,
+    INTERVAL_UNITS,
+    SCHEDULE_TYPES,
+    build_updated_config,
+)
 from .calendar_source import CalendarSource
 from .journal import ReminderJournal
 
@@ -642,6 +652,64 @@ async def _register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Created reminder '%s' (subentry %s)", name, subentry.subentry_id)
         return {"entry_id": subentry.subentry_id, "name": name}
 
+    async def handle_update_reminder(call: ServiceCall) -> ServiceResponse:
+        """Edit an existing reminder in place.
+
+        The wizard rewrites the whole reminder; this merges only the fields
+        named in the call and leaves the rest alone. Updating the subentry
+        fires the hub update-listener, which reloads and rebuilds the runner —
+        the same path the wizard's Save takes, so an edit here and an edit
+        there land identically. Runtime state (last done, retry counters) lives
+        in the reminder's own Store keyed by a stable uid, so nothing an update
+        does resets it, and the switch entity_id never moves.
+        """
+        entry_id = call.data["entry_id"]
+        runner = _get_runner_by_id(hass, entry_id)
+        if runner is None:
+            raise HomeAssistantError(f"Reminder not found: {entry_id}")
+
+        changes = {k: v for k, v in call.data.items() if k != "entry_id"}
+        if not changes:
+            raise HomeAssistantError(
+                "update_reminder needs at least one field to change"
+            )
+
+        current = dict(runner._subentry.data)
+        try:
+            config = build_updated_config(current, changes, dt_util.now().date())
+        except ValueError as err:
+            raise HomeAssistantError(f"Cannot update '{runner.name}': {err}") from err
+
+        # Re-measure the spoken payload only when this call could have changed
+        # it. Measuring every update would refuse an unrelated one-field edit on
+        # a reminder whose message predates the length guard.
+        name = config.get(CONF_REMINDER_NAME) or runner.name
+        actionable = config.get(CONF_ACTIONABLE, runner.actionable)
+        if changes.keys() & {"message", "messages", "name", "actionable"}:
+            for message in config.get(CONF_PROMPT_MESSAGES) or []:
+                over = spoken_overrun(message, name, actionable, entry_id)
+                if over:
+                    raise HomeAssistantError(
+                        f"Message is {over} characters too long to speak in full "
+                        f"({len(message)} chars; the engine appends its own question "
+                        f"and reply hint). Shorten it and try again: {message[:60]}..."
+                    )
+
+        changed = sorted(
+            key
+            for key in set(config) | set(current)
+            if config.get(key) != current.get(key)
+        )
+        if not changed:
+            _LOGGER.debug("update_reminder: nothing to change on %s", runner.name)
+            return {"entry_id": entry_id, "name": name, "changed": []}
+
+        hass.config_entries.async_update_subentry(
+            runner._hub_entry, runner._subentry, title=name, data=config
+        )
+        _LOGGER.info("Updated reminder '%s': %s", name, ", ".join(changed))
+        return {"entry_id": entry_id, "name": name, "changed": changed}
+
     async def handle_set_messages(call: ServiceCall) -> None:
         """Replace a reminder's prompt message list (factual text only).
 
@@ -804,6 +872,74 @@ async def _register_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(
         DOMAIN,
+        SERVICE_UPDATE,
+        handle_update_reminder,
+        schema=vol.Schema({
+            vol.Required("entry_id"): cv.string,
+            # Identity / schedule
+            vol.Optional("name"): cv.string,
+            vol.Optional("enabled"): cv.boolean,
+            vol.Optional("schedule_type"): vol.In(SCHEDULE_TYPES),
+            vol.Optional("time"): cv.time,
+            vol.Optional("date"): cv.date,
+            vol.Optional("every"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional("unit"): vol.In(INTERVAL_UNITS),
+            vol.Optional("weekdays"): vol.All(cv.ensure_list, [vol.In(WEEKDAYS)]),
+            vol.Optional("anchor"): cv.date,
+            vol.Optional("monthly_day"): vol.All(vol.Coerce(int), vol.Range(min=1, max=31)),
+            vol.Optional("monthly_week"): vol.All(cv.ensure_list, [vol.In(MONTHLY_WEEKS)]),
+            vol.Optional("monthly_weekday"): vol.In(WEEKDAYS),
+            # Condition detail
+            vol.Optional("condition_mode"): vol.In(CONDITION_MODES),
+            vol.Optional("due_template"): cv.string,
+            vol.Optional("accumulator_source"): cv.entity_id,
+            vol.Optional("accumulator_limit"): vol.Coerce(float),
+            vol.Optional("accumulator_reset_on_done"): cv.boolean,
+            vol.Optional("threshold_entity"): cv.entity_id,
+            vol.Optional("threshold_below"): vol.Coerce(float),
+            vol.Optional("threshold_above"): vol.Coerce(float),
+            vol.Optional("threshold_hysteresis"): vol.Coerce(float),
+            # Messages — one or the other, never both.
+            vol.Exclusive("message", "prompt_text"): cv.string,
+            vol.Exclusive("messages", "prompt_text"): vol.All(
+                cv.ensure_list, [cv.string], vol.Length(min=1)
+            ),
+            # Behavior
+            vol.Optional("mandatory"): cv.boolean,
+            vol.Optional("nag"): cv.boolean,
+            vol.Optional("until_done"): cv.boolean,
+            vol.Optional("allow_critical"): cv.boolean,
+            vol.Optional("lead_times"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+            # Delivery / escalation overrides
+            vol.Optional("actionable"): cv.boolean,
+            vol.Optional("mobile_service"): cv.string,
+            vol.Optional("alexa_devices"): vol.All(cv.ensure_list, [cv.entity_id]),
+            vol.Optional("escalation_volume"): vol.All(
+                vol.Coerce(float), vol.Range(min=0.0, max=1.0)
+            ),
+            vol.Optional("retry_interval"): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
+            vol.Optional("max_retries"): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
+            vol.Optional("escalation_interval"): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
+            vol.Optional("max_escalations"): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
+            vol.Optional("response_window"): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+            vol.Optional("nag_min_gap"): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+            vol.Optional("nag_max_gap"): vol.All(vol.Coerce(int), vol.Range(min=15, max=240)),
+            vol.Optional("nag_fraction"): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=0.9)),
+            # Presence / quiet hours
+            vol.Optional("presence_sensors"): vol.All(cv.ensure_list, [cv.entity_id]),
+            vol.Optional("catchup_on_arrival"): cv.boolean,
+            vol.Optional("quiet_start"): cv.time,
+            vol.Optional("quiet_end"): cv.time,
+            # Send an optional override back to the hub default.
+            vol.Optional("clear"): vol.All(
+                cv.ensure_list, [vol.In(sorted(CLEARABLE))]
+            ),
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_SET_MESSAGES,
         handle_set_messages,
         schema=vol.Schema({
@@ -818,7 +954,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             SERVICE_MARK_DONE, SERVICE_DISMISS, SERVICE_SKIP_TODAY,
             SERVICE_FORCE_PROMPT, SERVICE_SET_ACCUM_BASELINE,
             SERVICE_SNOOZE, SERVICE_RESCHEDULE, SERVICE_CALENDAR_ACK,
-            SERVICE_CREATE, SERVICE_SET_MESSAGES,
+            SERVICE_CREATE, SERVICE_UPDATE, SERVICE_SET_MESSAGES,
         ]),
     )
 

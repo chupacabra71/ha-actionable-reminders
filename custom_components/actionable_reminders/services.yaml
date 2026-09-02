@@ -333,3 +333,398 @@ handle_datetime:
       required: false
       selector:
         text:
+
+update_reminder:
+  name: Update Reminder
+  description: >-
+    Change an existing reminder's configuration in place. Only the fields you
+    supply change; everything else is left alone. Runtime state (last done,
+    retry counters, snooze) is untouched, and the switch entity keeps its
+    entity_id even when you rename it. Returns the list of changed keys.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The reminder's entry_id (from its switch entity attributes).
+      required: true
+      example: "01ABC..."
+      selector:
+        text:
+    name:
+      name: Name
+      description: New display name. The switch's entity_id does not change.
+      required: false
+      example: Water the plants
+      selector:
+        text:
+    enabled:
+      name: Enabled
+      description: Enable or disable the reminder (same as its switch).
+      required: false
+      selector:
+        boolean:
+    schedule_type:
+      name: Schedule type
+      description: >-
+        Change how it recurs. Switching type discards the old type's schedule
+        settings, so supply what the new one needs in the same call.
+      required: false
+      selector:
+        select:
+          options:
+            - label: One-time (on a date)
+              value: once
+            - label: Repeating (every N days/weeks/months/years)
+              value: repeating
+            - label: Yearly (anniversary / birthday)
+              value: yearly
+            - label: Condition (template / accumulator / threshold)
+              value: condition
+    time:
+      name: Time of day
+      description: When it prompts.
+      required: false
+      example: "09:00"
+      selector:
+        time:
+    date:
+      name: Date
+      description: For One-time, the target date. For Yearly, the anniversary (month/day recurs).
+      required: false
+      example: "2026-09-02"
+      selector:
+        date:
+    every:
+      name: Every (N)
+      description: For Repeating — the interval count.
+      required: false
+      example: 2
+      selector:
+        number:
+          mode: box
+          min: 1
+          step: 1
+    unit:
+      name: Interval unit
+      description: For Repeating. Changing it clears the previous unit's detail (weekdays / monthly pattern).
+      required: false
+      selector:
+        select:
+          options: [days, weeks, months, years]
+    weekdays:
+      name: Weekdays
+      description: For Repeating with unit "weeks" — restrict to these days. Empty uses the anchor's weekday.
+      required: false
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
+    anchor:
+      name: Anchor date
+      description: For Repeating — the occurrence the interval counts from.
+      required: false
+      example: "2026-07-22"
+      selector:
+        date:
+    monthly_day:
+      name: Day of month
+      description: For Repeating with unit "months" — a specific day (31 = last day of shorter months).
+      required: false
+      example: 15
+      selector:
+        number:
+          mode: box
+          min: 1
+          max: 31
+    monthly_week:
+      name: Week pattern
+      description: For Repeating with unit "months" — which week(s) of the month.
+      required: false
+      selector:
+        select:
+          multiple: true
+          options: [first, second, third, fourth, last]
+    monthly_weekday:
+      name: Week-pattern weekday
+      description: For Repeating with unit "months" — which weekday the pattern lands on.
+      required: false
+      selector:
+        select:
+          options: [mon, tue, wed, thu, fri, sat, sun]
+    condition_mode:
+      name: Condition mode
+      description: For Condition — which due anchor it uses. Switching clears the other modes' settings.
+      required: false
+      selector:
+        select:
+          options:
+            - label: Template (Jinja)
+              value: template
+            - label: Accumulator (device data since done)
+              value: accumulator
+            - label: Threshold (live sensor crosses a value)
+              value: threshold
+    due_template:
+      name: Due template
+      description: For Condition/template — due while this Jinja renders truthy.
+      required: false
+      example: "{{ is_state('binary_sensor.water_low','on') }}"
+      selector:
+        template:
+    accumulator_source:
+      name: Accumulator source
+      description: For Condition/accumulator — the entity whose value accumulates.
+      required: false
+      selector:
+        entity:
+          domain: [sensor, input_number, counter]
+    accumulator_limit:
+      name: Accumulator limit
+      description: For Condition/accumulator — due once it climbs this much since the last completion.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 0
+          step: any
+    accumulator_reset_on_done:
+      name: Re-baseline on done
+      description: On = monotonic source, re-baselined at completion. Off = the source resets itself.
+      required: false
+      selector:
+        boolean:
+    threshold_entity:
+      name: Threshold entity
+      description: For Condition/threshold — the sensor to watch.
+      required: false
+      selector:
+        entity:
+          domain: [sensor, input_number]
+    threshold_below:
+      name: Due at or below
+      description: For Condition/threshold — due when the value drops to or under this.
+      required: false
+      selector:
+        number:
+          mode: box
+          step: any
+    threshold_above:
+      name: Due at or above
+      description: For Condition/threshold — due when the value rises to or over this.
+      required: false
+      selector:
+        number:
+          mode: box
+          step: any
+    threshold_hysteresis:
+      name: Hysteresis
+      description: For Condition/threshold — recovery buffer before it clears, to stop flapping.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 0
+          step: any
+    message:
+      name: Prompt message
+      description: >-
+        Replace the prompt with this single factual message. The engine appends
+        its own question, so keep it factual. Mutually exclusive with "messages".
+      required: false
+      example: Time to water the plants
+      selector:
+        text:
+          multiline: true
+    messages:
+      name: Prompt messages
+      description: Replace the prompt with a pool of factual messages that rotate at random.
+      required: false
+      example: '["The upstairs A/C filter is due for a change."]'
+      selector:
+        object:
+    mandatory:
+      name: Mandatory
+      description: If on, it cannot be skipped, snoozed, or rescheduled and never auto-gives-up.
+      required: false
+      selector:
+        boolean:
+    nag:
+      name: Nag until done
+      description: On = keep prompting until acknowledged. Off = a single announce.
+      required: false
+      selector:
+        boolean:
+    until_done:
+      name: Carry forward
+      description: Carry an unfinished occurrence into the next day rather than letting it lapse.
+      required: false
+      selector:
+        boolean:
+    allow_critical:
+      name: Allow critical
+      description: Permit DND-bypassing critical alerts during escalation.
+      required: false
+      selector:
+        boolean:
+    lead_times:
+      name: Lead times (days before)
+      description: Pre-notification offsets in days before due (e.g. [7, 1]).
+      required: false
+      example: "[7, 1]"
+      selector:
+        object:
+    actionable:
+      name: Actionable
+      description: On = ask and wait for an answer. Off = announce only.
+      required: false
+      selector:
+        boolean:
+    mobile_service:
+      name: Mobile notify service
+      description: Notify service for this reminder (blank inherits the hub default).
+      required: false
+      example: notify.mobile_app_phone
+      selector:
+        text:
+    alexa_devices:
+      name: Alexa devices
+      description: Media players to speak on (blank inherits the hub default).
+      required: false
+      selector:
+        entity:
+          domain: media_player
+          multiple: true
+    escalation_volume:
+      name: Escalation volume
+      description: Volume used during escalation (0.0-1.0).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.1
+    retry_interval:
+      name: Retry interval
+      description: Minutes between retries.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 1
+          max: 120
+    max_retries:
+      name: Max retries
+      description: Asks before escalation.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 0
+          max: 20
+    escalation_interval:
+      name: Escalation interval
+      description: Minutes between escalated retries.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 1
+          max: 120
+    max_escalations:
+      name: Max escalations
+      description: Escalated asks before auto-skip.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 0
+          max: 20
+    response_window:
+      name: Response window
+      description: Minutes the actionable response window stays open.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 1
+          max: 60
+    nag_min_gap:
+      name: Nag minimum gap
+      description: Floor minutes between nags.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 5
+          max: 120
+    nag_max_gap:
+      name: Nag maximum gap
+      description: Ceiling minutes between nags.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 15
+          max: 240
+    nag_fraction:
+      name: Nag fraction
+      description: Nag gap as a fraction of the time left until quiet hours.
+      required: false
+      selector:
+        number:
+          mode: box
+          min: 0.1
+          max: 0.9
+          step: 0.05
+    presence_sensors:
+      name: Presence sensors
+      description: Only prompt when these say someone is home.
+      required: false
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: presence
+          multiple: true
+    catchup_on_arrival:
+      name: Catch up on arrival
+      description: Prompt on arrival home if it was due while nobody was in.
+      required: false
+      selector:
+        boolean:
+    quiet_start:
+      name: Quiet hours start
+      description: Nothing prompts after this time.
+      required: false
+      example: "22:00"
+      selector:
+        time:
+    quiet_end:
+      name: Quiet hours end
+      description: Prompting resumes at this time.
+      required: false
+      example: "08:00"
+      selector:
+        time:
+    clear:
+      name: Clear (back to hub default)
+      description: >-
+        Field names to remove from this reminder so it inherits the hub default
+        again (e.g. ["retry_interval", "quiet_start"]). Only optional overrides
+        can be cleared — a schedule field cannot.
+      required: false
+      example: '["retry_interval", "presence_sensors"]'
+      selector:
+        object:
