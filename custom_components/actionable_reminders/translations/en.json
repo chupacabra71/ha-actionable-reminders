@@ -85,14 +85,16 @@
             "allow_critical": "Allow critical (bypass Do Not Disturb)",
             "lead_times_text": "Lead-time heads-ups (days before)",
             "until_done": "Keep prompting until done",
-            "mandatory": "Mandatory"
+            "mandatory": "Mandatory",
+            "announce_when_away": "Announce even when the addressed person is away"
           },
           "data_description": {
             "nag": "On: keep prompting and escalating until you acknowledge. Off: a single announcement.",
             "allow_critical": "Off by default. Only turn on if this reminder should be able to override Do Not Disturb when it escalates.",
             "lead_times_text": "Comma-separated days, e.g. \"30, 7, 1\". Leave empty for none.",
             "until_done": "Carry an unfinished occurrence to the following days until it's marked done, instead of losing it and waiting for the next scheduled date. Skip drops it. Condition reminders re-arm on their own and are unaffected.",
-            "mandatory": "Mandatory reminders cannot be skipped, snoozed, or rescheduled, and never auto-give-up — they keep prompting until marked done."
+            "mandatory": "Mandatory reminders cannot be skipped, snoozed, or rescheduled, and never auto-give-up — they keep prompting until marked done.",
+            "announce_when_away": "For household chores. Normally a reminder is spoken only while the person it is addressed to is home. With this on it is spoken to whoever IS home instead — so the dogs' meds still get announced while you are out. An empty house stays silent; it comes back on the next nag."
           }
         },
         "menu": {

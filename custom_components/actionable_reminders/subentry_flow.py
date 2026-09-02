@@ -41,6 +41,7 @@ from .const import (
     CONF_NAG,
     CONF_MANDATORY,
     CONF_ALLOW_CRITICAL,
+    CONF_ANNOUNCE_WHEN_AWAY,
     CONF_SCHEDULE_DAYS,
     CONF_SCHEDULE_MONTHLY_TYPE,
     CONF_SCHEDULE_MONTHLY_DAY,
@@ -70,6 +71,7 @@ from .const import (
     CONF_QUIET_END,
     DEFAULT_NAG,
     DEFAULT_ALLOW_CRITICAL,
+    DEFAULT_ANNOUNCE_WHEN_AWAY,
     DEFAULT_UNTIL_DONE,
     DEFAULT_ACTIONABLE,
     DEFAULT_ESCALATION_VOLUME,
@@ -500,6 +502,10 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             vol.Optional("lead_times_text", default=lead_default): selector.TextSelector(),
             vol.Required(CONF_UNTIL_DONE, default=d.get(CONF_UNTIL_DONE, DEFAULT_UNTIL_DONE)): bool,
             vol.Required(CONF_MANDATORY, default=d.get(CONF_MANDATORY, False)): bool,
+            vol.Required(
+                CONF_ANNOUNCE_WHEN_AWAY,
+                default=d.get(CONF_ANNOUNCE_WHEN_AWAY, DEFAULT_ANNOUNCE_WHEN_AWAY),
+            ): bool,
         })
         return self.async_show_form(
             step_id="behavior",
