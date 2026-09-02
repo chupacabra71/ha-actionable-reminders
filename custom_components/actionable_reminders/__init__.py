@@ -65,6 +65,7 @@ from .const import (
     CONF_CONDITION_MODE,
     CONF_DUE_TEMPLATE,
     CONF_MANDATORY,
+    CONF_ANNOUNCE_WHEN_AWAY,
     CONF_ACTIONABLE,
     CONF_LEAD_TIMES,
     DEFAULT_SCHEDULE_TIME,
@@ -639,6 +640,8 @@ async def _register_services(hass: HomeAssistant) -> None:
 
         if d.get("mandatory"):
             config[CONF_MANDATORY] = True
+        if d.get("announce_when_away"):
+            config[CONF_ANNOUNCE_WHEN_AWAY] = True
         if d.get("lead_times"):
             config[CONF_LEAD_TIMES] = [int(x) for x in d["lead_times"]]
 
@@ -865,6 +868,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             vol.Optional("due_template"): cv.string,
             vol.Optional("message"): cv.string,
             vol.Optional("mandatory"): cv.boolean,
+            vol.Optional("announce_when_away"): cv.boolean,
             vol.Optional("lead_times"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         }),
         supports_response=SupportsResponse.OPTIONAL,
@@ -909,6 +913,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             vol.Optional("nag"): cv.boolean,
             vol.Optional("until_done"): cv.boolean,
             vol.Optional("allow_critical"): cv.boolean,
+            vol.Optional("announce_when_away"): cv.boolean,
             vol.Optional("lead_times"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
             # Delivery / escalation overrides
             vol.Optional("actionable"): cv.boolean,
