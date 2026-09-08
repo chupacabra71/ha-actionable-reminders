@@ -231,11 +231,24 @@ script.unified_notifications(
   severity="TIME-SENSITIVE" | "CRITICAL"  # escalation bumps severity
   title="🔔 Reminder", message=<prompt>,  # self-prompting ("... say yes when done")
   tag=f"ar_{id}",
+  group=f"REMINDER-{slug(name)}",         # one iOS thread per reminder
   confirm_text="Done",  confirm_action=[actionable_reminders.mark_done(id)],
   dismiss_text="Not yet", dismiss_action=[actionable_reminders.dismiss(id)],
 )
 ```
 
+- **One thread per reminder.** A switchboard caller that names no `group` lands
+  in the shared default thread, so on the phone a reminder that nags eight times
+  a day stacks on top of everything quiet — the A/C filter buried a birthday.
+  Both payload builders send `REMINDER-<slug of name>`, so a busy reminder can
+  only ever collapse onto itself.
+- **Announcement severity is INFO, except yearly.** An announcement expects no
+  answer and has no business bypassing Do Not Disturb. A birthday is the
+  exception: it is announced once, on the day, and the announce path stamps
+  `last_done` straight after sending — there is no second attempt. At INFO the
+  switchboard asks iOS for `active`, which a Focus filter or the scheduled
+  notification summary may hold for hours; `TIME-SENSITIVE` is the level that
+  breaks through, and the honest description of a date that cannot be deferred.
 - **Voice-ack** works because `unified_notifications` owns the Alexa actionable
   round-trip on a single Echo; "Done" → `mark_done`. This *closes the loop v0.3.2
   left open* and *finishes the Alexa stub* — without re-implementing either.

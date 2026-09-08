@@ -1675,6 +1675,42 @@ class ReminderRunner:
         """
         return self._speech_safe(text.replace("{subject}", self.name))
 
+    @property
+    def notification_group(self) -> str:
+        """iOS thread this reminder's notifications belong to.
+
+        Every switchboard caller that does not name a group lands in the shared
+        default one, so on the phone a reminder that nags eight times a day
+        stacks on top of everything else that happens to be quiet — the A/C
+        filter buried a birthday. A group per reminder gives each its own
+        thread, so a busy one can only ever collapse onto itself.
+
+        Derived from the name rather than the entry id: the value shows up in
+        logs and traces, and REMINDER-DOGS-MONTHLY-MEDS says what it is where an
+        opaque id does not. A rename simply starts a new thread, which is the
+        same thing the phone does when any other notification is retitled.
+        """
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", self.name).strip("-").upper()
+        return f"REMINDER-{slug}" if slug else "REMINDERS"
+
+    @property
+    def announcement_severity(self) -> str:
+        """Severity for a one-shot announcement (no answer expected).
+
+        INFO for the general case: an announcement is informational by
+        definition and has no business bypassing Do Not Disturb.
+
+        Yearly reminders are the exception. A birthday is announced once, on
+        the day, and is worthless an hour late — but at INFO the switchboard
+        asks iOS for `active`, which a Focus filter or the scheduled
+        notification summary is free to hold until the evening. There is no
+        second chance: the announce path stamps LAST_DONE straight after
+        sending and the occurrence is closed. TIME-SENSITIVE is the level that
+        breaks through, and it is the honest description of a date that cannot
+        be deferred.
+        """
+        return "TIME-SENSITIVE" if self.schedule_type == "yearly" else "INFO"
+
     @staticmethod
     def _speech_safe(text: str) -> str:
         """Make text safe for the Alexa Actionable Notifications skill.
@@ -1703,10 +1739,11 @@ class ReminderRunner:
             data = {
                 "method": "all",
                 "who": "all",
-                "severity": "INFO",
+                "severity": self.announcement_severity,
                 "title": "🔔 Reminder",
                 "message": message,
                 "tag": f"ar_{self.entry_id}",
+                "group": self.notification_group,
                 **({"voice_any_resident": True} if self.announce_when_away else {}),
             }
             if self.alexa_devices:
@@ -1925,6 +1962,7 @@ class ReminderRunner:
             "title": "🔔 Reminder",
             "message": speech,
             "tag": tag,
+            "group": self.notification_group,
             # Ask the switchboard to speak to whoever is home rather than to
             # the addressed person only. Omitted entirely when off, so a
             # switchboard that predates the field is unaffected.
