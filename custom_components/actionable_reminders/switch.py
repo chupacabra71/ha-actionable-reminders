@@ -128,6 +128,8 @@ class ReminderSwitch(SwitchEntity):
         # Build extra state attributes for display
         self._attr_extra_state_attributes = {
             "entry_id": self._runner.entry_id,
+            # "" = uncategorized; lets auto-entities / templates group by it.
+            "category": self._runner.category,
             "schedule_type": self._runner.schedule_type,
             "schedule_time": self._runner.schedule_time,
             "schedule_days": self._runner.schedule_days if self._runner.schedule_type == "weekly" else None,

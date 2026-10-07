@@ -151,6 +151,26 @@ CONF_ANNOUNCE_WHEN_AWAY = "announce_when_away"  # Speak to whoever IS home, not 
 CONF_NAG = "nag"                                               # Post-due nag-until-done (False = single announce)
 CONF_MANDATORY = "mandatory"                                    # Cannot be skipped/snoozed/rescheduled; never auto-skips
 
+# Organisation (no engine effect — grouping for the card, labels, filters)
+CONF_CATEGORY = "category"                                       # Free text; "" = Uncategorized
+
+# Offered in the wizard alongside whatever categories reminders already use.
+DEFAULT_CATEGORIES = [
+    "Yard & Lawn",
+    "House",
+    "Pool",
+    "Vehicles",
+    "Pets",
+    "Family",
+    "Appliances",
+    "Health",
+    "Finance",
+    "Other",
+]
+# Prefix of the entity-registry labels this integration owns. Anything without
+# it is the user's and is never touched.
+CATEGORY_LABEL_PREFIX = "Reminders · "
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # State Tracking (Runtime state stored in entry.data["state"])

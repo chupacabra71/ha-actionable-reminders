@@ -36,6 +36,7 @@ from .const import (
     EVENT_COMPLETED,
     CONF_REMINDER_NAME,
     CONF_ENABLED,
+    CONF_CATEGORY,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
     CONF_ONCE_DATE,
@@ -433,6 +434,7 @@ class ReminderRunner:
         """Apply configuration from entry data."""
         # Basic settings
         self._enabled = config.get(CONF_ENABLED, DEFAULT_ENABLED)
+        self.category = config.get(CONF_CATEGORY) or ""
         
         # Schedule configuration
         self.schedule_type = config.get(CONF_SCHEDULE_TYPE, "daily")

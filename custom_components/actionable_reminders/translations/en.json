@@ -27,11 +27,13 @@
           "description": "What is this reminder, how often should it repeat, and what should it say?",
           "data": {
             "reminder_name": "Name",
+            "category": "Category",
             "schedule_type": "Repeats",
             "message": "Prompt message"
           },
           "data_description": {
             "reminder_name": "A short name, e.g. \"Give dogs meds\" or \"Change A/C filter\".",
+            "category": "Optional. Groups the reminder on the reminders card and adds a \"Reminders · <category>\" label to its switch. Pick one or type a new one; blank = Uncategorized.",
             "schedule_type": "Repeating (every N days/weeks/months/years, with weekday or day-of-month detail), a one-time date, or driven by a condition.",
             "message": "What you'll be asked, e.g. \"Did you give the dogs their meds?\" Templates are rendered, so a condition reminder can name what tripped it."
           }

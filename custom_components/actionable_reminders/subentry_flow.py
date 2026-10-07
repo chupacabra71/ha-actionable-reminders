@@ -21,9 +21,12 @@ from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
 from .reminder import spoken_overrun
+from .categories import category_options, normalize_category
 from .const import (
     CONF_WINDOW_TEMPLATE,
     CONF_REMINDER_NAME,
+    CONF_CATEGORY,
+    SUBENTRY_TYPE_REMINDER,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
     CONF_ONCE_DATE,
@@ -174,6 +177,10 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
         placeholders: dict[str, str] = {}
         if user_input is not None:
             self._data.update(user_input)
+            # An Optional field left blank is simply absent from user_input, so
+            # update() alone would keep the old category on an edit that
+            # cleared it.
+            self._data[CONF_CATEGORY] = normalize_category(user_input.get(CONF_CATEGORY))
             # Measured as if it will be asked rather than announced: the
             # behaviour step comes later, the hub default asks for a reply, and
             # a message that fits when asked also fits when merely announced.
@@ -192,6 +199,17 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 CONF_REMINDER_NAME,
                 description={"suggested_value": d.get(CONF_REMINDER_NAME)},
             ): str,
+            vol.Optional(
+                CONF_CATEGORY,
+                description={"suggested_value": d.get(CONF_CATEGORY) or None},
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=self._category_options(),
+                    custom_value=True,
+                    sort=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Required(
                 CONF_SCHEDULE_TYPE, default=d.get(CONF_SCHEDULE_TYPE, "repeating")
             ): selector.SelectSelector(
@@ -215,6 +233,18 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             errors=errors,
             description_placeholders=placeholders or None,
         )
+
+    def _category_options(self) -> list[str]:
+        """Defaults plus every category another reminder already uses."""
+        try:
+            used = [
+                sub.data.get(CONF_CATEGORY)
+                for sub in self._get_entry().subentries.values()
+                if sub.subentry_type == SUBENTRY_TYPE_REMINDER
+            ]
+        except Exception:  # noqa: BLE001 — suggestions only; never block the form
+            used = []
+        return category_options(used)
 
     # ── step 2: schedule detail ─────────────────────────────────────────────
 
@@ -651,6 +681,8 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
             CONF_ACK_MESSAGES: d.get(CONF_ACK_MESSAGES, DEFAULT_ACK_MESSAGES),
             CONF_DISMISS_MESSAGES: d.get(CONF_DISMISS_MESSAGES, DEFAULT_DISMISS_MESSAGES),
         }
+        if category := normalize_category(d.get(CONF_CATEGORY)):
+            config[CONF_CATEGORY] = category
 
         if stype == "repeating":
             config[CONF_INTERVAL_EVERY] = int(d.get(CONF_INTERVAL_EVERY, 1))

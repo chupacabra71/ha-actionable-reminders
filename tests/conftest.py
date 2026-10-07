@@ -62,6 +62,20 @@ def _install_ha_stubs() -> None:
         async_get=lambda *a, **k: None, async_entries_for_device=lambda *a, **k: [])
     mod("homeassistant.helpers.typing", ConfigType=dict)
     mod("homeassistant.helpers.start", async_at_started=lambda *a, **k: None)
+    # Category labels + the card's websocket commands (bound by __init__).
+    mod("homeassistant.helpers.label_registry", async_get=lambda *a, **k: None)
+    mod("homeassistant.components")
+    passthrough = lambda f: f  # noqa: E731
+    mod("homeassistant.components.websocket_api",
+        websocket_command=lambda schema: passthrough,
+        require_admin=passthrough, async_response=passthrough,
+        async_register_command=lambda *a, **k: None)
+    # switch.py, so the attribute surface can be asserted on.
+    mod("homeassistant.components.switch", SwitchEntity=object)
+    mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+    sys.modules["homeassistant.helpers.dispatcher"].async_dispatcher_connect = (
+        lambda *a, **k: (lambda: None)
+    )
     sys.modules["homeassistant.const"].Platform = types.SimpleNamespace(
         SWITCH="switch", TODO="todo", SENSOR="sensor"
     )
