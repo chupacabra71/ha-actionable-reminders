@@ -4,19 +4,19 @@
 # Two side-by-side columns (max_columns: 2, one column_span:1 section each):
 #   • Due now   — reminders that actually need action (status overdue/due_soon/
 #                 triggered). Tap = done, hold = snooze 2h, double-tap = details.
-#   • Coming up — everything not yet due, sorted soonest-first. Tap opens a
-#                 browser_mod "Manage" popup (mark done early / snooze 3d / skip /
-#                 push 1 week / push 1 month); double-tap = details.
+#   • All reminders — custom:actionable-reminders-card: every reminder grouped
+#                 by category (collapsible, searchable), tap a row for Done /
+#                 Snooze / Skip and an inline editor. Served by the integration
+#                 itself, so it needs no dashboard resource.
 #
-# Rows are custom:button-card built by auto-entities include rules, status-
-# coloured, with a live progress bar for accumulator reminders. Dates show the
-# year when it is not the current year. Every card sets grid_options.columns:full
-# so a column collapses cleanly (a column_span:1 section is a 12-col grid).
+# Due-now rows are custom:button-card built by auto-entities include rules,
+# status-coloured, with a live progress bar for accumulator reminders. Dates show
+# the year when it is not the current year. Every card sets
+# grid_options.columns:full so a column collapses cleanly (a column_span:1
+# section is a 12-col grid).
 #
-# The shared row config is the &rowbtn anchor; the Coming-up column merges it and
-# overrides tap/hold to get the popup.
-#
-# Custom cards (all via HACS): mushroom, button-card, auto-entities, browser_mod.
+# Custom cards (all via HACS): mushroom, button-card, auto-entities. The
+# reminders card ships with the integration.
 # ─────────────────────────────────────────────────────────────────────────────
 title: Reminders
 path: reminders
@@ -173,146 +173,19 @@ sections:
             attribute: count
             below: 1
 
-  # ── Coming up: status ok, soonest-first, tap = manage popup ─────────────────
+  # ── All reminders, grouped by category (edit in place) ───────────────────
   - type: grid
     column_span: 1
     cards:
       - type: heading
-        heading: Coming up
+        heading: All reminders
         heading_style: subtitle
-        icon: mdi:calendar-clock
+        icon: mdi:format-list-group
         grid_options: { columns: full, rows: auto }
-      - type: markdown
-        text_only: true
-        content: "Tap = manage (reschedule / done early / snooze) · double-tap = details"
+      - type: custom:actionable-reminders-card
+        show_search: true
+        collapsed_by_default: false
         grid_options: { columns: full, rows: auto }
-      - type: custom:auto-entities
-        show_empty: true
-        card: { type: grid, columns: 1, square: false }
-        card_param: cards
-        grid_options: { columns: full, rows: auto }
-        sort: { method: attribute, attribute: days_until_due, reverse: false, numeric: true }
-        filter:
-          include:
-            - domain: switch
-              integration: actionable_reminders
-              options:
-                <<: *rowbtn
-                # Coming-up rows: tap opens the Manage popup, hold snoozes 3 days.
-                # double_tap_action (more-info) is inherited from &rowbtn.
-                tap_action:
-                  action: fire-dom-event
-                  browser_mod:
-                    service: browser_mod.popup
-                    data:
-                      title: "[[[ return entity.attributes.friendly_name; ]]]"
-                      dismissable: true
-                      content:
-                        type: grid
-                        columns: 1
-                        square: false
-                        cards:
-                          - &poprow
-                            type: custom:button-card
-                            name: Mark done / serviced
-                            icon: mdi:check-circle
-                            show_name: true
-                            show_icon: true
-                            tap_action:
-                              action: call-service
-                              service: actionable_reminders.mark_done
-                              service_data:
-                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                            styles: &popstyle
-                              card:
-                                - padding: 13px 16px
-                                - border-radius: 12px
-                                - box-shadow: none
-                                - background: var(--secondary-background-color)
-                              grid:
-                                - grid-template-areas: '"i n"'
-                                - grid-template-columns: 26px 1fr
-                                - align-items: center
-                                - grid-gap: 16px
-                              icon:
-                                - width: 24px
-                                - height: 24px
-                                - color: "#66bb6a"
-                              name:
-                                - justify-self: start
-                                - font-size: 15px
-                                - font-weight: "500"
-                          - <<: *poprow
-                            name: Snooze 3 days
-                            icon: mdi:sleep
-                            tap_action:
-                              action: call-service
-                              service: actionable_reminders.snooze
-                              service_data:
-                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                                duration: "72:00:00"
-                            styles:
-                              <<: *popstyle
-                              icon:
-                                - width: 24px
-                                - height: 24px
-                                - color: "#f0b429"
-                          - <<: *poprow
-                            name: Skip this time
-                            icon: mdi:skip-next-circle-outline
-                            tap_action:
-                              action: call-service
-                              service: actionable_reminders.skip_today
-                              service_data:
-                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                            styles:
-                              <<: *popstyle
-                              icon:
-                                - width: 24px
-                                - height: 24px
-                                - color: "#9e9e9e"
-                          - <<: *poprow
-                            name: Push out 1 week
-                            icon: mdi:calendar-arrow-right
-                            tap_action:
-                              action: call-service
-                              service: actionable_reminders.reschedule_next
-                              service_data:
-                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                                date: "[[[ var d=new Date(); d.setDate(d.getDate()+7); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); ]]]"
-                            styles:
-                              <<: *popstyle
-                              icon:
-                                - width: 24px
-                                - height: 24px
-                                - color: "#42a5f5"
-                          - <<: *poprow
-                            name: Push out 1 month
-                            icon: mdi:calendar-arrow-right
-                            tap_action:
-                              action: call-service
-                              service: actionable_reminders.reschedule_next
-                              service_data:
-                                entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                                date: "[[[ var d=new Date(); d.setMonth(d.getMonth()+1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); ]]]"
-                            styles:
-                              <<: *popstyle
-                              icon:
-                                - width: 24px
-                                - height: 24px
-                                - color: "#42a5f5"
-                hold_action:
-                  action: call-service
-                  service: actionable_reminders.snooze
-                  service_data:
-                    entry_id: "[[[ return entity.attributes.entry_id; ]]]"
-                    duration: "72:00:00"
-          exclude:
-            - entity_id: switch.actionable_reminders_master
-            - attributes: { status: triggered }
-            - attributes: { status: overdue }
-            - attributes: { status: due_soon }
-            - attributes: { status: disabled }
 
   # ── Add-by-voice hint ───────────────────────────────────────────────────────
   # Assist voice creation is wired via a conversation-trigger automation
