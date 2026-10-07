@@ -26,6 +26,11 @@ _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=5)
 LOOKAHEAD_DAYS = 60
+# How far back unanswered events keep nagging (once a day). Fetching from
+# "now" dropped an all-day event the morning after it went unanswered — and
+# pruned its state with it — so the overdue branch below could never run, and
+# a timed event that ended before the waking window was never asked at all.
+LOOKBACK_DAYS = 14
 WAKE_START = dt_time(8, 0)
 WAKE_END = dt_time(21, 0)
 STORAGE_VERSION = 1
@@ -159,14 +164,14 @@ class CalendarSource:
         await self._store.async_save(self._state)
 
     async def _fetch_events(self, now: datetime) -> list[dict] | None:
-        """Return the calendar's upcoming events, or None on error."""
+        """Return the calendar's recent and upcoming events, or None on error."""
         try:
             resp = await self.hass.services.async_call(
                 "calendar",
                 "get_events",
                 {
                     "entity_id": self.calendar_entity,
-                    "start_date_time": now.isoformat(),
+                    "start_date_time": (now - timedelta(days=LOOKBACK_DAYS)).isoformat(),
                     "end_date_time": (now + timedelta(days=LOOKAHEAD_DAYS)).isoformat(),
                 },
                 blocking=True,

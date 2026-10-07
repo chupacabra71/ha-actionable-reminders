@@ -71,13 +71,22 @@ def test_carried_occurrence_stays_due_every_following_day():
         assert r._is_scheduled(at(day)) is True, f"{day} should still be due"
 
 
-def test_without_until_done_the_occurrence_is_still_lost():
-    """The opt-out must preserve the old behaviour exactly."""
+def test_without_until_done_an_asked_occurrence_lapses():
+    """The opt-out still lets an occurrence go once it has been asked."""
     r = weekly_sunday(until_done=False)
+    r._state[const.STATE_LAST_PROMPT] = at(SUNDAY, hour=10).isoformat()
     roll_over_to(r, SUNDAY, MONDAY)
 
     assert r._state[CARRY] is None
     assert r._is_scheduled(at(MONDAY)) is False
+
+
+def test_without_until_done_a_never_asked_occurrence_still_carries():
+    """Nobody chose to let it go — quiet hours, HA down, nobody home."""
+    r = weekly_sunday(until_done=False)
+    roll_over_to(r, SUNDAY, MONDAY)
+
+    assert r._state[CARRY] == SUNDAY.isoformat()
 
 
 def test_multi_day_gap_finds_the_stepped_over_occurrence():
@@ -229,12 +238,12 @@ def test_condition_auto_skip_never_carries(frozen_time):
 
 # ── the carry does not bypass the other gates ──────────────────────────────────
 
-def test_carried_occurrence_still_waits_for_its_time_of_day():
+def test_carried_occurrence_does_not_wait_for_its_time_of_day_again():
+    """It is overdue already; quiet hours (in _is_due) are the only clock."""
     r = weekly_sunday()
     roll_over_to(r, SUNDAY, MONDAY)
 
-    assert r._is_scheduled(at(MONDAY, hour=8, minute=0)) is False
-    assert r._is_scheduled(at(MONDAY, hour=9, minute=30)) is True
+    assert r._is_scheduled(at(MONDAY, hour=8, minute=0)) is True
 
 
 def test_carried_occurrence_is_not_due_during_quiet_hours():

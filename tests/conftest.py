@@ -141,6 +141,12 @@ class FakeHass:
         self.services = FakeServices()
         self.states = FakeStates()
         self.data = {const.DOMAIN: {"hub": {"master_enabled": True}}}
+        self.tasks: list = []
+
+    def async_create_task(self, coro):
+        # Fire-and-forget saves/notifications: record, don't schedule.
+        self.tasks.append(getattr(coro, "__name__", repr(coro)))
+        coro.close()
 
 
 def make_runner(**config):
@@ -163,6 +169,9 @@ def make_runner(**config):
     r._prompt_tmpl_warned = False
     r._accum_warned = False
     r._thresh_latched = False
+    r._resolve_seen_at = None
+    r._answer_gen = 0
+    r._render_err_notified = False
     r._display_fingerprint = None
     r._pending_notifications = set()
     r._state = {
@@ -201,9 +210,11 @@ def make_runner(**config):
     # directly instead, which is what _is_scheduled actually consults.
     r.condition_due = True
     if not real_condition:
-        r._eval_condition = lambda: r.condition_due
+        r._eval_need = lambda: r.condition_due
 
     r._save_state = _save_state
+    r.payloads: list[dict] = []
+    r._notify_detached = r.payloads.append
     r._record_journal = _record_journal
     r._send_ack = _send_ack
     r._self_remove = _self_remove

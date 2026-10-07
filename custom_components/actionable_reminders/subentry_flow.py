@@ -22,6 +22,7 @@ from homeassistant.util import dt as dt_util
 
 from .reminder import spoken_overrun
 from .const import (
+    CONF_WINDOW_TEMPLATE,
     CONF_REMINDER_NAME,
     CONF_SCHEDULE_TYPE,
     CONF_SCHEDULE_TIME,
@@ -404,6 +405,9 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
     ) -> SubentryFlowResult:
         mode = self._data.get(CONF_CONDITION_MODE, "template")
         if user_input is not None:
+            # An emptied optional field is simply absent from user_input; drop
+            # the prefilled value first so clearing the window actually clears.
+            self._data.pop(CONF_WINDOW_TEMPLATE, None)
             self._data.update(user_input)
             return await self.async_step_behavior()
 
@@ -475,6 +479,14 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                 "Jinja template — the reminder is due whenever it renders true. "
                 "Variables days_since_done and last_done are available."
             )
+        # Every mode may say when it is a good time to ASK. Kept separate from
+        # the due anchor: only "needed" can close a reminder on its own.
+        schema = schema.extend({
+            vol.Optional(
+                CONF_WINDOW_TEMPLATE,
+                description={"suggested_value": d.get(CONF_WINDOW_TEMPLATE)},
+            ): selector.TemplateSelector(),
+        })
         return self.async_show_form(
             step_id="condition_detail",
             data_schema=schema,
@@ -679,6 +691,8 @@ class ReminderSubentryFlow(ConfigSubentryFlow):
                         config[k] = d.get(k)
             else:
                 config[CONF_DUE_TEMPLATE] = d.get(CONF_DUE_TEMPLATE)
+            if d.get(CONF_WINDOW_TEMPLATE):
+                config[CONF_WINDOW_TEMPLATE] = d[CONF_WINDOW_TEMPLATE]
         elif stype == "monthly":
             mtype = d.get(CONF_SCHEDULE_MONTHLY_TYPE, "day")
             config[CONF_SCHEDULE_MONTHLY_TYPE] = mtype

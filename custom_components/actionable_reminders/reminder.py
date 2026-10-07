@@ -41,6 +41,7 @@ from .const import (
     CONF_ONCE_DATE,
     CONF_ANNIVERSARY_DATE,
     CONF_DUE_TEMPLATE,
+    CONF_WINDOW_TEMPLATE,
     CONF_CONDITION_MODE,
     CONF_ACCUM_SOURCE,
     CONF_ACCUM_LIMIT,
@@ -114,6 +115,9 @@ from .const import (
     STATE_PROMPT_OPEN,
     STATE_REPROMPT_COUNT,
     STATE_NEXT_NAG_MINUTES,
+    STATE_LAST_COMPLETED,
+    STATE_THRESH_LATCHED,
+    STATE_ACCUM_REANCHOR,
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_ESCALATION_INTERVAL,
@@ -178,6 +182,105 @@ ALEXA_WRAPPER_OVERHEAD = 61
 # the budget below is the same for all of them — and a reminder being edited in
 # the wizard does not have its id yet.
 _ENTRY_ID_LEN = 26
+
+# ── spoken-reply classification ───────────────────────────────────────────────
+# Whole-word matching, negation before completion. The old substring matcher
+# checked "done" first, so "not done yet" and "no, I haven't done it" both
+# marked the chore complete. When a reply is ambiguous it must fall to
+# dismiss: a wrong "not yet" re-asks later, a wrong "done" loses the chore.
+
+_SKIP_PHRASES = ("skip", "not today", "not this time", "not this one")
+_KEEP_PHRASES = ("don't skip", "do not skip", "dont skip")
+_SNOOZE_PHRASES = (
+    "snooze", "later", "in a bit", "in a while", "remind me", "hold on",
+    "busy", "soon", "give me", "after a while",
+)
+_NEGATIONS = {"not", "no", "nope", "nah", "never", "yet", "stop", "negative"}
+_DONE_PHRASES = (
+    "done", "did it", "did that", "already", "finished", "complete",
+    "completed", "handled", "taken care", "yes", "yep", "yeah", "all set",
+)
+_NUMBER_WORDS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
+    "forty five": 45, "forty-five": 45, "ninety": 90, "couple": 2,
+    "a couple": 2, "a couple of": 2, "few": 3, "a few": 3,
+}
+_UNIT_MINUTES = {
+    "minute": 1, "min": 1, "hour": 60, "hr": 60, "day": 1440, "week": 10080,
+}
+_DURATION_RE = re.compile(
+    r"\b(\d+(?:\.\d+)?|(?:twenty|thirty|forty)[ -](?:one|two|three|four|five|six|seven|eight|nine)"
+    r"|a couple of|a couple|a few|forty[ -]five|"
+    + "|".join(sorted((k for k in _NUMBER_WORDS if " " not in k and "-" not in k), key=len, reverse=True))
+    + r")\s+(minute|min|hour|hr|day|week)s?\b"
+)
+_MAX_SNOOZE = timedelta(days=30)
+
+
+def _has(text: str, phrase: str) -> bool:
+    return re.search(rf"(?<![a-z']){re.escape(phrase)}(?![a-z'])", text) is not None
+
+
+def _spoken_number(token: str) -> float | None:
+    token = token.replace("-", " ").strip()
+    try:
+        return float(token)
+    except ValueError:
+        pass
+    if token in _NUMBER_WORDS:
+        return float(_NUMBER_WORDS[token])
+    parts = token.split()
+    if len(parts) == 2 and parts[0] in _NUMBER_WORDS and parts[1] in _NUMBER_WORDS:
+        return float(_NUMBER_WORDS[parts[0]] + _NUMBER_WORDS[parts[1]])
+    return None
+
+
+def parse_spoken_duration(text: str) -> timedelta | None:
+    """'two hours', '24 hours', 'a day', 'half an hour', 'tomorrow' → timedelta."""
+    t = (text or "").lower()
+    if _has(t, "half an hour") or _has(t, "half hour"):
+        return timedelta(minutes=30)
+    if _has(t, "tomorrow"):
+        return timedelta(days=1)
+    m = _DURATION_RE.search(t)
+    if not m:
+        return None
+    n = _spoken_number(m.group(1))
+    if not n or n <= 0:
+        return None
+    return min(timedelta(minutes=n * _UNIT_MINUTES[m.group(2)]), _MAX_SNOOZE)
+
+
+def classify_voice_reply(text: str | None) -> tuple[str, timedelta | None]:
+    """Map a free-text reply to (action, snooze duration).
+
+    action ∈ skip | snooze | dismiss | done | reprompt. Order matters:
+    skip, then snooze (so "not now, remind me in an hour" snoozes), then any
+    negation (dismiss), and only then the completion words.
+    """
+    t = re.sub(r"\s+", " ", (text or "").lower().replace("’", "'")).strip()
+    if not t:
+        return "reprompt", None
+    duration = parse_spoken_duration(t)
+    if any(_has(t, p) for p in _KEEP_PHRASES):
+        return "dismiss", None
+    if any(_has(t, p) for p in _SKIP_PHRASES):
+        return "skip", None
+    if duration is not None or any(_has(t, p) for p in _SNOOZE_PHRASES):
+        return "snooze", duration
+    tokens = re.findall(r"[a-z']+", t)
+    if any(tok in _NEGATIONS or tok.endswith("n't") or tok in ("havent", "didnt", "dont", "isnt", "cant", "wont") for tok in tokens):
+        return "dismiss", None
+    if any(_has(t, p) for p in _DONE_PHRASES):
+        return "done", None
+    return "reprompt", None
+
+
+# How long a condition reminder's need anchor must read definitively false
+# before the engine treats the chore as done without being told.
+RESOLVE_CONFIRM = timedelta(minutes=5)
 
 # Storage version for per-reminder runtime state (kept out of the config entry
 # so saving state never triggers a config-update / reconfigure cycle).
@@ -305,7 +408,10 @@ class ReminderRunner:
         self._tmpl_warned = False     # de-spam due_template render errors
         self._prompt_tmpl_warned = False  # de-spam prompt-message render errors
         self._accum_warned = False    # de-spam accumulator source-read errors
-        self._thresh_latched = False  # in-memory hysteresis latch (threshold mode)
+        self._thresh_latched = False  # hysteresis latch (threshold mode); persisted as STATE_THRESH_LATCHED
+        self._resolve_seen_at = None  # first tick the need anchor read definitively false
+        self._answer_gen = 0          # bumped by every answer; see _send_prompt
+        self._render_err_notified = False  # one persistent notification per broken template
         self._tick_lock = asyncio.Lock()  # serialize timer/presence ticks
         self._display_fingerprint = None  # last pushed computed-attribute snapshot
         self._pending_notifications = set()  # strong refs; see _notify_detached
@@ -436,6 +542,10 @@ class ReminderRunner:
         self.lead_times = config.get(CONF_LEAD_TIMES, DEFAULT_LEAD_TIMES)
         self.anniversary_date = config.get(CONF_ANNIVERSARY_DATE)  # yearly
         self.due_template = config.get(CONF_DUE_TEMPLATE)  # condition source
+        # "Is now a good time to ask?" — gates prompting only. Kept apart from
+        # due_template because only "is it needed" may close a reminder on its
+        # own; a closing time window or a rainy forecast is not a completion.
+        self.window_template = config.get(CONF_WINDOW_TEMPLATE) or None
         # Condition sub-mode (default template = pre-existing behavior).
         self.condition_mode = config.get(CONF_CONDITION_MODE, "template")
         self.accum_source = config.get(CONF_ACCUM_SOURCE)
@@ -564,16 +674,31 @@ class ReminderRunner:
         stored = await self._store.async_load()
         if stored:
             self._state.update(stored)
+            self._post_load_migrate()
             _LOGGER.debug("Loaded state for %s: %s", self.name, self._state)
             return
         # Migration: older versions kept state inside the config entry.
         legacy = self._subentry.data.get("state")
         if legacy:
             self._state.update(legacy)
+            self._post_load_migrate()
             await self._store.async_save(dict(self._state))
             _LOGGER.debug("Migrated legacy state for %s", self.name)
         else:
+            self._post_load_migrate()
             _LOGGER.debug("No persisted state for %s", self.name)
+
+    def _post_load_migrate(self) -> None:
+        """Bring a Store written by an older version up to the current shape.
+
+        last_completed is new: until now days_since_done read last_done, which
+        a skip, an auto-skip and a self-resolve all write — so skipping one day
+        of a "every 14 days" chore restarted its 14-day clock. Seed it from
+        last_done once; from here on only a real completion moves it.
+        """
+        if STATE_LAST_COMPLETED not in self._state:
+            self._state[STATE_LAST_COMPLETED] = self._state.get(STATE_LAST_DONE)
+        self._thresh_latched = bool(self._state.get(STATE_THRESH_LATCHED, False))
 
     async def _save_state(self) -> None:
         """Persist runtime state to the Store (never the config entry).
@@ -622,14 +747,23 @@ class ReminderRunner:
         """Handle timer tick (runs every minute)."""
         # Ahead of every gate below: a disabled reminder, a reminder muted by
         # the master switch, and a reminder whose tick is already in flight all
-        # still need their displayed progress to stay current.
-        self._refresh_display()
+        # still need their displayed progress to stay current. Guarded: a
+        # display bug must never cost a prompt.
+        try:
+            self._refresh_display()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Display refresh failed for %s", self.name)
 
-        if not self._enabled:
-            return
-
-        # Master kill switch — when off, nothing fires (any reminder).
-        if not self.hass.data.get(DOMAIN, {}).get("hub", {}).get("master_enabled", True):
+        # Disabled, or muted by the master switch: nothing fires. The day
+        # marker still advances, so re-enabling after a vacation does not walk
+        # back over every occurrence that passed while it was deliberately off.
+        if not self._enabled or not self.hass.data.get(DOMAIN, {}).get(
+            "hub", {}
+        ).get("master_enabled", True):
+            today = dt_util.as_local(now).date().isoformat()
+            if self._state.get(STATE_RESET_DAY) != today:
+                self._state[STATE_RESET_DAY] = today
+                await self._save_state()
             return
 
         # Serialize ticks. A presence-change catch-up can invoke this while the
@@ -668,12 +802,18 @@ class ReminderRunner:
         # that auto-skipped once would go permanently silent).
         if self._state.get(STATE_RESET_DAY) != today:
             previous = self._state.get(STATE_RESET_DAY)
+            # Carry FIRST, then stamp the day: if the scan raised after the
+            # stamp, the next tick would see today's marker and the unfinished
+            # occurrence would be dropped for good.
+            try:
+                self._carry_unfinished_occurrence(previous, now.date())
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Carry-forward scan failed for %s", self.name)
             self._state[STATE_RESET_DAY] = today
             self._state[STATE_RETRIES_TODAY] = 0
             self._state[STATE_ESCALATED] = False
             self._state[STATE_ESCALATIONS_TODAY] = 0
             self._state[STATE_AUTO_SKIPPED] = False
-            self._carry_unfinished_occurrence(previous, now.date())
             await self._save_state()
 
     async def _check_condition_resolved(self, now: datetime) -> None:
@@ -687,27 +827,43 @@ class ReminderRunner:
         tank clears the error code that made the reminder due, and until now
         that looked identical to never having been reminded at all.
 
-        Reads _eval_condition() rather than _is_due() on purpose: quiet hours,
-        presence and the retry gate also make a reminder not-due, and none of
-        them means resolved.
+        Reads the NEED anchor only (_eval_need), never the window or _is_due:
+        quiet hours, presence, the retry gate and the window_template all make
+        a reminder not-askable, and none of them means resolved. Hose Down A/C
+        Units was silently "resolved" at 18:00 on 2026-09-23 because its single
+        template ended `and 10 <= now().hour < 18` — the clock closing the
+        window read exactly like the chore being done.
+
+        The need must read definitively false — every entity it referenced
+        available, no render error — and stay false for RESOLVE_CONFIRM, so a
+        sensor dropping out or flapping for a moment cannot close a chore.
         """
         if self.schedule_type != "condition":
             return
         if not self._state.get(STATE_PROMPT_OPEN):
+            self._resolve_seen_at = None
             return  # never asked, so there is nothing to close
         today = now.date().isoformat()
         if self._state.get(STATE_LAST_DONE) == today:
             return  # already closed by an answer
-        if self._eval_condition():
-            return  # still due
+        if self._eval_need() is not False:
+            self._resolve_seen_at = None
+            return  # still needed, or unknowable right now
+        if self._resolve_seen_at is None:
+            self._resolve_seen_at = now
+        if now - self._resolve_seen_at < RESOLVE_CONFIRM:
+            return
+        self._resolve_seen_at = None
 
         _LOGGER.info("%s resolved on its own — recording the completion", self.name)
         self._state[STATE_LAST_DONE] = today
+        self._state[STATE_LAST_COMPLETED] = today
         self._state[STATE_RETRIES_TODAY] = 0
         self._state[STATE_ESCALATED] = False
         self._state[STATE_ESCALATIONS_TODAY] = 0
         self._state[STATE_AUTO_SKIPPED] = False
         self._state[STATE_SNOOZE_UNTIL] = None
+        self._answer_gen += 1
 
         # Re-anchor an accumulator exactly as a manual completion would. The
         # source has already dropped — that is WHY the anchor cleared — and
@@ -720,6 +876,9 @@ class ReminderRunner:
         await self._retract_prompt()
         await self._save_state()
         await self._record_journal("resolved", source="auto")
+        # Never silent: a wrong self-resolve used to cost a whole cycle with
+        # nothing to show for it but a journal line nobody reads.
+        self._notify_resolved()
 
         # on_complete is deliberately NOT run. It exists to CAUSE the
         # resolution — press the reset button, zero the counter — so firing it
@@ -755,7 +914,7 @@ class ReminderRunner:
         guard below is belt-and-braces: _date_matches_schedule already returns
         False for them, so the scan could not set a marker regardless.
         """
-        if not self.until_done or self.schedule_type == "condition":
+        if self.schedule_type == "condition":
             return
         if self._state.get(STATE_CARRY_FROM):
             return  # already carrying an older occurrence — it stays the anchor
@@ -770,12 +929,25 @@ class ReminderRunner:
         # multi-day gap (HA down, a long absence) still finds the occurrence it
         # stepped over. Bounded so a stale marker can't spin the tick.
         last_done = self._state.get(STATE_LAST_DONE)
+        last_prompt_day = None
+        if lp := self._state.get(STATE_LAST_PROMPT):
+            try:
+                last_prompt_day = dt_util.as_local(datetime.fromisoformat(lp)).date()
+            except (TypeError, ValueError):
+                last_prompt_day = None
         for offset in range(max(min((today - start).days, 366), 0)):
             d = start + timedelta(days=offset)
             if not self._date_matches_schedule(d):
                 continue
             if last_done == d.isoformat():
                 continue  # closed out that day (marked done, or skipped)
+            # until_done=False lets an ASKED occurrence lapse at midnight. One
+            # that was never asked at all — schedule time inside quiet hours,
+            # HA down, nobody home — is carried regardless: nobody chose to
+            # let it go.
+            asked = last_prompt_day is not None and last_prompt_day >= d
+            if not self.until_done and asked:
+                continue
             self._state[STATE_CARRY_FROM] = d.isoformat()
             _LOGGER.info(
                 "Carrying unfinished occurrence for %s forward from %s",
@@ -794,11 +966,9 @@ class ReminderRunner:
             return False
 
         # Snoozed — suppressed until the snooze expires.
-        snooze_until = self._state.get(STATE_SNOOZE_UNTIL)
-        if snooze_until:
-            parsed = dt_util.parse_datetime(snooze_until)
-            if parsed and now < dt_util.as_local(parsed):
-                return False
+        snooze = self._snooze_phase(now)
+        if snooze == "active":
+            return False
 
         # Check basic schedule
         if not self._is_scheduled(now):
@@ -812,11 +982,29 @@ class ReminderRunner:
         if not self._presence_satisfied():
             return False
         
-        # Check retry gate
-        if not self._retry_ready(now):
+        # Retry gate — except for a snooze that has run out. The snooze WAS the
+        # wait; holding it behind the nag gap picked at the previous prompt
+        # turned a 10-minute snooze into a two-hour one.
+        if snooze != "expired" and not self._retry_ready(now):
             return False
         
         return True
+
+    def _snooze_phase(self, now: datetime) -> str | None:
+        """'active' while a snooze holds, 'expired' once it has run out but the
+        reminder has not been asked again yet, None when there is no snooze.
+
+        An expired snooze is kept (not cleared on expiry) until the next prompt
+        goes out, so it can keep the occurrence alive across midnight and past
+        the time-of-day gate — see _is_scheduled.
+        """
+        raw = self._state.get(STATE_SNOOZE_UNTIL)
+        if not raw:
+            return None
+        parsed = dt_util.parse_datetime(raw)
+        if parsed is None:
+            return None
+        return "active" if now < dt_util.as_local(parsed) else "expired"
 
     def _is_scheduled(self, now: datetime) -> bool:
         """Check if current time matches the schedule."""
@@ -826,6 +1014,30 @@ class ReminderRunner:
         if self.schedule_type == "condition":
             return self._eval_condition()
 
+        # Already-overdue work skips the time-of-day gate below. A snooze that
+        # ran out, or an occurrence carried from an earlier day, is late
+        # already; holding it until today's schedule time again only made it
+        # later — and a schedule time inside a quiet window that runs past
+        # midnight could never be reached at all. Quiet hours, presence and the
+        # retry gate still apply; they live in _is_due, not here.
+        if self._snooze_phase(now) == "expired":
+            return True
+        if self._state.get(STATE_CARRY_FROM):
+            return True
+
+        # A one-off reschedule overrides the normal pattern for this occurrence:
+        # due on/after the target date, then cleared on completion. A target
+        # already in the past is overdue and skips the time gate too.
+        resched = self._state.get(STATE_RESCHEDULE_DATE)
+        resched_target = None
+        if resched:
+            try:
+                resched_target = date.fromisoformat(resched)
+            except (TypeError, ValueError):
+                resched_target = None
+            if resched_target is not None and now.date() > resched_target:
+                return True
+
         # Parse schedule time
         hour, minute = _time_parts(self.schedule_time, (9, 0))
         schedule_time = dt_time(hour, minute)
@@ -834,25 +1046,8 @@ class ReminderRunner:
         if now.time() < schedule_time:
             return False
 
-        # A one-off reschedule overrides the normal pattern for this occurrence:
-        # due on/after the target date, then cleared on completion.
-        resched = self._state.get(STATE_RESCHEDULE_DATE)
-        if resched:
-            try:
-                target = date.fromisoformat(resched)
-            except (TypeError, ValueError):
-                target = None
-            if target is not None:
-                return now.date() >= target
-
-        # An occurrence carried over from an earlier day stays due until it is
-        # closed out — the same "due on or after" shape as a reschedule. It sits
-        # after the time-of-day gate above so a carried reminder still prompts at
-        # its normal hour, and before the pattern match below because that only
-        # matches the occurrence's own date. Quiet hours, presence and the retry
-        # gate all still apply — they live in _is_due, not here.
-        if self._state.get(STATE_CARRY_FROM):
-            return True
+        if resched_target is not None:
+            return now.date() >= resched_target
 
         # Check schedule type
         if self.schedule_type == "daily":
@@ -1115,7 +1310,8 @@ class ReminderRunner:
                 base = self._state.get(STATE_ACCUM_BASELINE)
                 acc = cur - base if (self.accum_reset_on_done and base is not None) else cur
                 return max(acc / limit, 0.0)
-            return 1.0 if self._eval_condition() else 0.0
+            # Needed counts as due on the dashboard even outside the window.
+            return 1.0 if self._eval_need() is True else 0.0
         nd = self.next_due_date
         if nd is None:
             return 0.0
@@ -1196,7 +1392,10 @@ class ReminderRunner:
         prompt renders against the same names so a message can quote the
         figure its condition just decided on.
         """
-        last_done = self._state.get(STATE_LAST_DONE)
+        # Only a real completion counts. last_done is also written by skip,
+        # auto-skip and the daily "stop nagging" paths; reading it here meant a
+        # skipped day restarted an interval chore's whole clock.
+        last_done = self._state.get(STATE_LAST_COMPLETED)
         days_since = 99999
         if last_done:
             try:
@@ -1205,32 +1404,100 @@ class ReminderRunner:
                 days_since = 99999
         return {"days_since_done": days_since, "last_done": last_done}
 
-    def _eval_due_template(self) -> bool:
-        """Render the condition source's due_template to a bool."""
-        if not self.due_template:
-            return False
-        try:
-            res = Template(self.due_template, self.hass).async_render(
-                self._template_extras()
-            )
-        except Exception as e:  # noqa: BLE001
-            # Log once, not every tick, so a broken template doesn't spam the log.
-            if not self._tmpl_warned:
-                _LOGGER.warning("due_template error for %s: %s", self.name, e)
-                self._tmpl_warned = True
-            return False
-        self._tmpl_warned = False
+    @staticmethod
+    def _truthy(res: Any) -> bool:
         if isinstance(res, bool):
             return res
         return str(res).strip().lower() in ("true", "on", "yes", "1")
 
-    def _eval_condition(self) -> bool:
-        """Dispatch a condition reminder to its configured anchor."""
+    def _render_tri(self, source: str, label: str) -> bool | None:
+        """Render a condition template to True / False / None (unknowable).
+
+        None when the render raised, or when it came out False while any entity
+        it read was unavailable, unknown or missing — a `|float(100)` default
+        lands on "not due" by design, and that must never be mistaken for the
+        chore being done. A True result stands even with a dark entity: the
+        template author's defaults decided it, and a false alarm is visible
+        where a false completion is not.
+        """
+        try:
+            info = Template(source, self.hass).async_render_to_info(
+                self._template_extras()
+            )
+            res = info.result()
+        except Exception as e:  # noqa: BLE001
+            self._report_template_error(label, e)
+            return None
+        self._tmpl_warned = False
+        value = self._truthy(res)
+        if value:
+            return True
+        for entity_id in getattr(info, "entities", ()) or ():
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return None
+        return False
+
+    def _report_template_error(self, label: str, err: Exception) -> None:
+        """Make a broken template loud, once.
+
+        A template that raises reads as "not due" forever; the A/C rinse
+        reminder died exactly this quietly once already. A persistent
+        notification is the one surface someone will actually see.
+        """
+        if self._tmpl_warned:
+            return
+        self._tmpl_warned = True
+        _LOGGER.warning("%s error for %s: %s", label, self.name, err)
+        if self._render_err_notified:
+            return
+        self._render_err_notified = True
+        try:
+            self.hass.async_create_task(
+                self.hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": f"Reminder template broken: {self.name}",
+                        "message": (
+                            f"The {label} for **{self.name}** failed to render, so "
+                            f"the reminder cannot tell whether it is due:\n\n`{err}`"
+                        ),
+                        "notification_id": f"ar_template_{self.entry_id}",
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _eval_need(self) -> bool | None:
+        """Is the chore needed? True / False / None when it cannot be known.
+
+        This is the ONLY anchor allowed to close a reminder on its own (see
+        _check_condition_resolved), so it answers None rather than False
+        whenever its inputs are dark.
+        """
         if self.condition_mode == "accumulator":
             return self._eval_accumulator()
         if self.condition_mode == "threshold":
             return self._eval_threshold()
-        return self._eval_due_template()
+        if not self.due_template:
+            return False
+        return self._render_tri(self.due_template, "due_template")
+
+    def _eval_window(self) -> bool:
+        """Is now a good time to ask? Fails OPEN.
+
+        A broken or dark window must not mute a chore that is needed — at worst
+        it gets asked at an awkward moment, which someone will notice and fix.
+        """
+        if not self.window_template:
+            return True
+        return self._render_tri(self.window_template, "window_template") is not False
+
+    def _eval_condition(self) -> bool:
+        """Should a condition reminder be asking right now?"""
+        return self._eval_need() is True and self._eval_window()
 
     def _read_numeric(self, entity_id: str | None) -> float | None:
         """Read an entity's numeric state, or None if missing/non-numeric."""
@@ -1265,14 +1532,24 @@ class ReminderRunner:
                     self.accum_source, self.name,
                 )
                 self._accum_warned = True
-            return False
+            return None
         self._accum_warned = False
         if not self.accum_reset_on_done:
             return cur >= limit
         base = self._state.get(STATE_ACCUM_BASELINE)
-        if base is None:
-            # Seed the baseline on first evaluation so it counts from now.
+        # Seed on first evaluation so a fresh reminder counts from now; apply a
+        # re-anchor deferred from a completion made while the source was dark;
+        # and follow a source that went BACKWARDS (counter zeroed by hand,
+        # replaced device) — otherwise current - baseline sits negative and the
+        # reminder stays quiet for a whole extra limit.
+        if base is None or self._state.get(STATE_ACCUM_REANCHOR) or cur < base:
+            if base is not None and cur < base and not self._state.get(STATE_ACCUM_REANCHOR):
+                _LOGGER.info(
+                    "Accumulator source for %s went backwards (%s < %s) — re-anchoring",
+                    self.name, cur, base,
+                )
             self._state[STATE_ACCUM_BASELINE] = cur
+            self._state[STATE_ACCUM_REANCHOR] = False
             self.hass.async_create_task(self._save_state())
             return False
         return (cur - base) >= limit
@@ -1280,12 +1557,14 @@ class ReminderRunner:
     def _eval_threshold(self) -> bool:
         """Due when a live sensor crosses `below`/`above`, with hysteresis.
 
-        The latch is in-memory: it recomputes from the current value after a
-        restart, so no persisted state is needed.
+        The latch is persisted in the Store (STATE_THRESH_LATCHED) so a reload
+        mid-band neither drops a due reminder nor "resolves" it.
         """
         val = self._read_numeric(self.threshold_entity)
         if val is None:
-            return self._thresh_latched
+            # Keep prompting on a latch that was already set; never resolve on it.
+            return True if self._thresh_latched else None
+        before = self._thresh_latched
         below = self._read_numeric_config(self.threshold_below)
         above = self._read_numeric_config(self.threshold_above)
         hyst = float(self.threshold_hysteresis or 0)
@@ -1301,6 +1580,11 @@ class ReminderRunner:
                     self._thresh_latched = False
             elif val >= above:
                 self._thresh_latched = True
+        if self._thresh_latched != before:
+            # Persisted: an in-memory latch reset on every hub reload, and a
+            # value sitting inside the hysteresis band then read as "cleared".
+            self._state[STATE_THRESH_LATCHED] = self._thresh_latched
+            self.hass.async_create_task(self._save_state())
         return self._thresh_latched
 
     @staticmethod
@@ -1318,6 +1602,10 @@ class ReminderRunner:
         if self.schedule_type != "condition":
             return {}
         out: dict[str, Any] = {"condition_mode": self.condition_mode}
+        # Auditable from Developer Tools: which half is holding it back.
+        out["needed"] = self._eval_need()
+        if self.window_template:
+            out["window_open"] = self._eval_window()
         if self.condition_mode == "accumulator":
             cur = self._read_numeric(self.accum_source)
             limit = self._read_numeric_config(self.accum_limit)
@@ -1347,7 +1635,7 @@ class ReminderRunner:
 
     def is_condition_due(self) -> bool:
         """Whether a condition reminder is currently due (for the to-do list)."""
-        return self.schedule_type == "condition" and self._eval_condition()
+        return self.schedule_type == "condition" and self._eval_need() is True
 
     def _in_quiet_hours(self, now: datetime) -> bool:
         """Check if current time is in quiet hours."""
@@ -1480,6 +1768,8 @@ class ReminderRunner:
             await self._send_announcement(now, offset=0)
             self._state[STATE_LAST_DONE] = now.date().isoformat()
             self._state[STATE_CARRY_FROM] = None
+            self._state[STATE_RESCHEDULE_DATE] = None
+            self._state[STATE_SNOOZE_UNTIL] = None
             await self._save_state()
             async_dispatcher_send(
                 self.hass, SIGNAL_REMINDER_UPDATE.format(self.entry_id)
@@ -1586,7 +1876,9 @@ class ReminderRunner:
             message = f"🔔 {self.name}"
         message = self._render_prompt(message)
         _LOGGER.info("Announcing for %s: %s", self.name, message)
-        await self._announce(message)
+        await self._announce(
+            message, tag=f"ar_lead_{self.entry_id}" if offset > 0 else None
+        )
 
     def _notify_detached(self, data: dict[str, Any]) -> None:
         """Start script.unified_notifications OUTSIDE the caller's script stack.
@@ -1732,8 +2024,13 @@ class ReminderRunner:
             text = text.replace(bad, good)
         return text
 
-    async def _announce(self, message: str) -> None:
-        """Deliver a non-actionable announcement (prefer unified_notifications)."""
+    async def _announce(self, message: str, tag: str | None = None) -> None:
+        """Deliver a non-actionable announcement (prefer unified_notifications).
+
+        `tag` defaults to the reminder's prompt tag. A lead-time heads-up passes
+        its own: sharing ar_<entry_id> let "due in a week" replace a carried,
+        still-unanswered prompt card on the phone — buttons and all.
+        """
         message = self._speech_safe(message)
         if self._use_unified_notifications():
             data = {
@@ -1742,7 +2039,7 @@ class ReminderRunner:
                 "severity": self.announcement_severity,
                 "title": "🔔 Reminder",
                 "message": message,
-                "tag": f"ar_{self.entry_id}",
+                "tag": tag or f"ar_{self.entry_id}",
                 "group": self.notification_group,
                 **({"voice_any_resident": True} if self.announce_when_away else {}),
             }
@@ -1794,6 +2091,10 @@ class ReminderRunner:
 
     async def _send_prompt(self, now: datetime) -> None:
         """Send a reminder prompt."""
+        # Answers arrive through services, outside the tick lock. If one lands
+        # while the sends below are awaiting, the bookkeeping after them must
+        # not reopen what the answer just closed.
+        gen = self._answer_gen
         # Select random prompt message
         if self.prompt_messages:
             prompt = random.choice(self.prompt_messages)
@@ -1847,8 +2148,17 @@ class ReminderRunner:
                 else:
                     await self._send_alexa_announce(prompt, alexa_target, volume)
 
+        if gen != self._answer_gen:
+            _LOGGER.info(
+                "%s was answered while its prompt was being sent — not reopening",
+                self.name,
+            )
+            return
+
         # Update state
         self._state[STATE_LAST_PROMPT] = now.isoformat()
+        # The snooze has been honoured: this IS the re-ask it was waiting for.
+        self._state[STATE_SNOOZE_UNTIL] = None
         # A card is now on screen awaiting an answer. Tracked so it can be
         # retracted later — and it deliberately survives midnight, because the
         # notification does too.
@@ -1918,6 +2228,32 @@ class ReminderRunner:
             )
         except Exception as e:  # noqa: BLE001
             _LOGGER.error("Failed to clear notification for %s: %s", self.name, e)
+
+    def _notify_resolved(self) -> None:
+        """Tell the household a reminder was checked off without being asked.
+
+        Mobile only, INFO: it is news, not a question, and may land at any
+        hour. Says what to do if the engine got it wrong.
+        """
+        if not self._use_unified_notifications():
+            return
+        data = {
+            "method": "mobile",
+            "who": "all",
+            "severity": "INFO",
+            "title": "✅ Reminder cleared",
+            "message": (
+                f"{self._speech_safe(self.name)} no longer looks needed, so I "
+                "checked it off. If it still needs doing, mark it from the "
+                "Reminders dashboard."
+            ),
+            "tag": f"ar_resolved_{self.entry_id}",
+            "group": self.notification_group,
+        }
+        try:
+            self._notify_detached(data)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error("Resolve notice failed for %s: %s", self.name, e)
 
     def _use_unified_notifications(self) -> bool:
         """Whether to delegate delivery to script.unified_notifications.
@@ -2192,7 +2528,9 @@ class ReminderRunner:
         _LOGGER.info("Marking reminder done: %s", self.name)
         
         # Update state
+        self._answer_gen += 1
         self._state[STATE_LAST_DONE] = today
+        self._state[STATE_LAST_COMPLETED] = today
         self._state[STATE_LAST_PROMPT] = dt_util.now().isoformat()
         self._state[STATE_RETRIES_TODAY] = 0
         self._state[STATE_ESCALATED] = False
@@ -2215,6 +2553,11 @@ class ReminderRunner:
             cur = self._read_numeric(self.accum_source)
             if cur is not None:
                 self._state[STATE_ACCUM_BASELINE] = cur
+                self._state[STATE_ACCUM_REANCHOR] = False
+            else:
+                # Source dark right now: keeping the old baseline would make
+                # the reminder due again tomorrow. Re-anchor on the next read.
+                self._state[STATE_ACCUM_REANCHOR] = True
 
         await self._save_state()
 
@@ -2420,6 +2763,7 @@ class ReminderRunner:
 
         _LOGGER.info("Skipping reminder for today: %s", self.name)
 
+        self._answer_gen += 1
         self._state[STATE_LAST_DONE] = today
         self._state[STATE_RETRIES_TODAY] = 0
         self._state[STATE_ESCALATED] = False
@@ -2427,13 +2771,24 @@ class ReminderRunner:
         self._state[STATE_AUTO_SKIPPED] = False
         # An explicit skip is a decision, not a missed prompt: it drops the
         # occurrence outright. This is the way out of an until_done carry —
-        # which is also why mandatory reminders refuse to skip at all.
+        # which is also why mandatory reminders refuse to skip at all. A
+        # pending reschedule or snooze belongs to the same occurrence; left
+        # set, a past reschedule date re-armed the reminder every day after.
         self._state[STATE_CARRY_FROM] = None
+        self._state[STATE_RESCHEDULE_DATE] = None
+        self._state[STATE_SNOOZE_UNTIL] = None
         await self._retract_prompt()
 
         await self._save_state()
         await self._record_journal("skip", context, source)
         await self._send_ack(random.choice(self.skip_messages))
+
+        # A one-time reminder has no next occurrence; skipping it is the end.
+        # Left in place, `today >= once_date` re-armed it every morning.
+        if self.schedule_type == "once":
+            async_dispatcher_send(self.hass, SIGNAL_REMINDERS_UPDATED)
+            self._self_remove()
+            return
 
         # Notify switch entity
         async_dispatcher_send(
@@ -2473,6 +2828,7 @@ class ReminderRunner:
             await self._send_ack(random.choice(self.mandatory_messages))
             return
         until = dt_util.now() + duration
+        self._answer_gen += 1
         self._state[STATE_SNOOZE_UNTIL] = until.isoformat()
         # Start fresh when it re-surfaces.
         self._state[STATE_RETRIES_TODAY] = 0
@@ -2501,26 +2857,25 @@ class ReminderRunner:
         skip / done / snooze / dismiss. Anything unrecognized re-prompts (capped),
         so a mumble gets a clarification rather than silently doing nothing.
         """
-        t = (text or "").lower().strip()
-        _LOGGER.info("Voice reply for %s: %r", self.name, t)
-        SKIP = ("skip", "not today", "not this")
-        DONE = ("done", "did it", "already", "finished", "complete", "handled", "taken care")
-        SNOOZE = ("snooze", "later", "in a bit", "in a while", "a bit", "hour", "remind me", "hold on", "busy", "soon")
-        DISMISS = ("no", "not yet", "not now", "nope", "stop")
-        if any(w in t for w in SKIP):
-            self._state[STATE_REPROMPT_COUNT] = 0
-            await self.async_skip_today(context=context, source=source)
-        elif any(w in t for w in DONE):
-            self._state[STATE_REPROMPT_COUNT] = 0
-            await self.async_mark_done(context=context, source=source)
-        elif any(w in t for w in SNOOZE):
-            self._state[STATE_REPROMPT_COUNT] = 0
-            await self.async_snooze(timedelta(hours=1), context=context, source=source)
-        elif any(w in t for w in DISMISS):
-            self._state[STATE_REPROMPT_COUNT] = 0
-            await self.async_dismiss(context=context, source=source)
-        else:
+        action, duration = classify_voice_reply(text)
+        _LOGGER.info(
+            "Voice reply for %s: %r -> %s%s",
+            self.name, text, action, f" ({duration})" if duration else "",
+        )
+        if action == "reprompt":
             await self.async_reprompt(context=context)
+            return
+        self._state[STATE_REPROMPT_COUNT] = 0
+        if action == "skip":
+            await self.async_skip_today(context=context, source=source)
+        elif action == "done":
+            await self.async_mark_done(context=context, source=source)
+        elif action == "snooze":
+            await self.async_snooze(
+                duration or timedelta(hours=1), context=context, source=source
+            )
+        else:
+            await self.async_dismiss(context=context, source=source)
 
     async def async_reprompt(self, context: Context | None = None) -> None:
         """Re-ask with a clarification when a reply was not understood (capped)."""
@@ -2590,6 +2945,7 @@ class ReminderRunner:
         
         _LOGGER.warning("Auto-skipping reminder after max escalations: %s", self.name)
         
+        self._answer_gen += 1
         self._state[STATE_LAST_DONE] = today
         self._state[STATE_AUTO_SKIPPED] = True
         self._state[STATE_RETRIES_TODAY] = 0

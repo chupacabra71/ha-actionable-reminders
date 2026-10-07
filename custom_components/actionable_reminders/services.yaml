@@ -236,6 +236,15 @@ create_reminder:
       example: "{{ is_state('binary_sensor.water_low','on') }}"
       selector:
         template:
+    window_template:
+      name: Window template
+      description: >-
+        For Condition — optional. Only ask while this renders truthy (time of
+        day, weather). Never marks the reminder done; only the due template can.
+      required: false
+      example: "{{ 10 <= now().hour < 18 }}"
+      selector:
+        template:
     message:
       name: Prompt message
       description: Custom text spoken/shown when prompting. Optional.
@@ -482,6 +491,15 @@ update_reminder:
       description: For Condition/template — due while this Jinja renders truthy.
       required: false
       example: "{{ is_state('binary_sensor.water_low','on') }}"
+      selector:
+        template:
+    window_template:
+      name: Window template
+      description: >-
+        For Condition (any mode) — only ask while this renders truthy. Never
+        marks the reminder done; send an empty string to remove it.
+      required: false
+      example: "{{ 10 <= now().hour < 18 }}"
       selector:
         template:
     accumulator_source:
