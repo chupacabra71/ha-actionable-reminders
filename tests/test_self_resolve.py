@@ -13,7 +13,7 @@ from datetime import date, datetime
 
 import pytest
 
-from conftest import const, make_runner
+from conftest import const, make_runner, reminder_mod
 
 TUESDAY = date(2026, 8, 18)
 
@@ -43,6 +43,12 @@ def condition_runner(*, prompted=True, due=False, **overrides):
     return r
 
 
+def settle(r, when):
+    """Two ticks RESOLVE_CONFIRM apart — a need must stay false to resolve."""
+    run(r._check_condition_resolved(when))
+    run(r._check_condition_resolved(when + reminder_mod.RESOLVE_CONFIRM))
+
+
 def clear_calls(r):
     return [c for c in r.hass.services.calls if c[2].get("message") == "clear_notification"]
 
@@ -53,7 +59,7 @@ def test_anchor_clearing_itself_records_a_completion(frozen_time):
     frozen_time.set(TUESDAY)
     r = condition_runner()
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r._state[LAST_DONE] == TUESDAY.isoformat()
     assert r.journal == ["resolved"], "distinct from a user-driven 'done'"
@@ -64,7 +70,7 @@ def test_self_resolve_retracts_the_notification(frozen_time):
     frozen_time.set(TUESDAY)
     r = condition_runner()
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     calls = clear_calls(r)
     assert len(calls) == 1
@@ -78,7 +84,7 @@ def test_self_resolve_fires_a_distinguishable_completion_event(frozen_time):
     frozen_time.set(TUESDAY)
     r = condition_runner()
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     events = [e for e in r.hass.bus.fired if e[0] == const.EVENT_COMPLETED]
     assert len(events) == 1
@@ -96,7 +102,7 @@ def test_self_resolve_does_not_rerun_on_complete(frozen_time):
                       "target": {"entity_id": "input_button.filter_replaced"}}]
     )
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r.journal == ["resolved"]
     assert r.acks == [], "a self-resolve is silent — no spoken acknowledgement"
@@ -120,7 +126,7 @@ def test_accumulator_baseline_is_reanchored(frozen_time):
     r.hass.states.set("sensor.filter_runtime", 3)   # externally reset
 
     assert r._eval_condition() is False
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r._state[const.STATE_ACCUM_BASELINE] == 3
     assert r.journal == ["resolved"]
@@ -135,7 +141,7 @@ def test_quiet_hours_are_not_mistaken_for_resolution(frozen_time):
     r = condition_runner(due=True, quiet_start="22:00", quiet_end="08:00")
 
     assert r._is_due(at(TUESDAY, hour=2)) is False, "quiet hours suppress it"
-    run(r._check_condition_resolved(at(TUESDAY, hour=2)))
+    settle(r, at(TUESDAY, hour=2))
 
     assert r._state[LAST_DONE] is None
     assert r.journal == []
@@ -145,7 +151,7 @@ def test_still_due_does_not_resolve(frozen_time):
     frozen_time.set(TUESDAY)
     r = condition_runner(due=True)
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r._state[LAST_DONE] is None
     assert clear_calls(r) == []
@@ -156,7 +162,7 @@ def test_no_outstanding_prompt_means_nothing_to_close(frozen_time):
     frozen_time.set(TUESDAY)
     r = condition_runner(prompted=False)
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r._state[LAST_DONE] is None
     assert r.journal == []
@@ -171,7 +177,7 @@ def test_scheduled_reminders_never_self_resolve(frozen_time):
     # Without this the test would pass on the early "still due" return instead.
     r.condition_due = False
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r._state[LAST_DONE] is None
     assert r.journal == []
@@ -182,7 +188,7 @@ def test_already_answered_today_is_not_resolved_again(frozen_time):
     r = condition_runner()
     r._state[LAST_DONE] = TUESDAY.isoformat()
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert r.journal == []
 
@@ -215,7 +221,7 @@ def test_missing_clear_service_is_a_silent_noop(frozen_time):
     frozen_time.set(TUESDAY)
     r = condition_runner(_hub_config={})
 
-    run(r._check_condition_resolved(at(TUESDAY)))
+    settle(r, at(TUESDAY))
 
     assert clear_calls(r) == []
     assert r.journal == ["resolved"], "the completion is still recorded"

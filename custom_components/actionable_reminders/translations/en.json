@@ -152,6 +152,7 @@
           "description": "{info}",
           "data": {
             "due_template": "Due when this template is true",
+            "window_template": "Only ask while this template is true (optional)",
             "accumulator_source": "Source entity",
             "accumulator_limit": "Limit",
             "accumulator_reset_on_done": "Reset on completion",
@@ -161,7 +162,8 @@
             "threshold_hysteresis": "Hysteresis (recovery buffer)"
           },
           "data_description": {
-            "due_template": "Jinja template — due whenever it renders true. Variables days_since_done and last_done are available.",
+            "due_template": "Jinja template — is the chore NEEDED? Due whenever it renders true; when it turns false on its own the reminder is checked off. Variables days_since_done and last_done are available.",
+            "window_template": "Jinja template — is now a good time to ASK (time of day, weather)? Gates prompting only and never checks the reminder off. Leave empty to ask any time outside quiet hours.",
             "accumulator_source": "A sensor/counter whose value accumulates — e.g. HVAC runtime hours or a cycle count.",
             "accumulator_limit": "Fire when the source has climbed this much since the last completion.",
             "accumulator_reset_on_done": "ON: source is a lifetime/monotonic value; the engine re-baselines on completion (no external reset). OFF: the source resets itself, so due = value ≥ limit.",

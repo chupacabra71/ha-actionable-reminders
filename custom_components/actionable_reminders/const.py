@@ -93,6 +93,7 @@ CONF_SCHEDULE_TIME = "schedule_time"                             # Time (HH:MM)
 CONF_ONCE_DATE = "once_date"                                     # One-time: target date (YYYY-MM-DD)
 CONF_ANNIVERSARY_DATE = "anniversary_date"                       # Yearly: date; MM-DD recurs, YYYY for age
 CONF_DUE_TEMPLATE = "due_template"                               # Condition: due while this Jinja renders truthy
+CONF_WINDOW_TEMPLATE = "window_template"                         # Condition: only ASK while this renders truthy (never resolves)
 # Condition sub-modes — generalize the `condition` source into richer due anchors.
 CONF_CONDITION_MODE = "condition_mode"                           # "template" | "accumulator" | "threshold"
 # Accumulator: due when a monotonic source climbs `limit` since the last completion.
@@ -170,6 +171,9 @@ STATE_PROMPT_OPEN = "prompt_open"                                # A delivered p
 STATE_CARRY_FROM = "carry_from"                                  # ISO date of an unfinished occurrence carried forward (until_done)
 STATE_REPROMPT_COUNT = "reprompt_count"                          # Voice-clarification reprompts used this cycle
 STATE_NEXT_NAG_MINUTES = "next_nag_minutes"                      # Adaptive minutes until the next nag (picked per prompt)
+STATE_LAST_COMPLETED = "last_completed_date"                     # Date the chore was actually done (not skipped) — feeds days_since_done
+STATE_THRESH_LATCHED = "threshold_latched"                       # Threshold-mode hysteresis latch, persisted across reloads
+STATE_ACCUM_REANCHOR = "accumulator_reanchor_pending"            # Done while the source was unreadable; re-baseline on next read
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

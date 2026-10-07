@@ -35,8 +35,20 @@ a single engine that any input can feed:
   date. `mandatory` is the within-a-day counterpart: it never auto-gives-up.
 - **Self-resolving conditions** — when a condition reminder's anchor clears on
   its own (you did the thing without answering the prompt), the completion is
-  recorded and the delivered notification is retracted, rather than the reminder
-  just going quiet with nothing logged.
+  recorded, the delivered notification is retracted, and a "✅ Reminder
+  cleared" notice is sent, rather than the reminder just going quiet.
+- **Needed vs. good time to ask** — a condition reminder has a `due_template`
+  (*is the chore needed?*) and an optional `window_template` (*is now a good
+  time to ask?* — hours, weather). Only the first can close a reminder on its
+  own. Put time-of-day and weather terms in the window: in the due template,
+  the window closing at 18:00 reads exactly like the chore being done. The need
+  must read false with every entity it uses available, for five minutes
+  straight; an unavailable sensor is "unknown", never "done".
+- **Snooze always comes back** — a spoken duration is honoured ("snooze for 24
+  hours"); an expired snooze asks straight away (no nag-gap or time-of-day
+  wait) and survives midnight even when the pattern no longer matches.
+  `days_since_done` counts real completions only — a skip or auto-skip does
+  not restart an interval chore's clock.
 - **Varied messaging** — lists of prompt / ack / dismiss messages.
 - **Per-reminder state tracking** — last prompt, last done, retries today,
   escalation state, auto-skip.

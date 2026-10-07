@@ -28,6 +28,7 @@ from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import (
+    CONF_WINDOW_TEMPLATE,
     DOMAIN,
     CONF_TYPE_HUB,
     CONF_TYPE_REMINDER,
@@ -635,6 +636,8 @@ async def _register_services(hass: HomeAssistant) -> None:
                 raise HomeAssistantError("schedule_type 'condition' requires 'due_template'")
             config[CONF_CONDITION_MODE] = "template"
             config[CONF_DUE_TEMPLATE] = d["due_template"]
+            if d.get("window_template"):
+                config[CONF_WINDOW_TEMPLATE] = d["window_template"]
         else:
             raise HomeAssistantError(f"Unsupported schedule_type: {stype}")
 
@@ -866,6 +869,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             vol.Optional("weekdays"): vol.All(cv.ensure_list, [vol.In(WEEKDAYS)]),
             vol.Optional("anchor"): cv.date,
             vol.Optional("due_template"): cv.string,
+            vol.Optional("window_template"): cv.string,
             vol.Optional("message"): cv.string,
             vol.Optional("mandatory"): cv.boolean,
             vol.Optional("announce_when_away"): cv.boolean,
@@ -896,6 +900,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             # Condition detail
             vol.Optional("condition_mode"): vol.In(CONDITION_MODES),
             vol.Optional("due_template"): cv.string,
+            vol.Optional("window_template"): cv.string,
             vol.Optional("accumulator_source"): cv.entity_id,
             vol.Optional("accumulator_limit"): vol.Coerce(float),
             vol.Optional("accumulator_reset_on_done"): cv.boolean,

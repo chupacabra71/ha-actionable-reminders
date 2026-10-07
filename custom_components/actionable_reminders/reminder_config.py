@@ -24,6 +24,7 @@ from datetime import date as date_cls, datetime, time as time_cls
 from typing import Any
 
 from .const import (
+    CONF_WINDOW_TEMPLATE,
     CONF_REMINDER_NAME,
     CONF_ENABLED,
     CONF_SCHEDULE_TYPE,
@@ -102,6 +103,7 @@ _REPEATING_KEYS = (
 _CONDITION_KEYS = (
     CONF_CONDITION_MODE,
     CONF_DUE_TEMPLATE,
+    CONF_WINDOW_TEMPLATE,
     CONF_ACCUM_SOURCE,
     CONF_ACCUM_LIMIT,
     CONF_ACCUM_RESET_ON_DONE,
@@ -138,6 +140,7 @@ FIELD_MAP: dict[str, str] = {
     "monthly_weekday": CONF_SCHEDULE_MONTHLY_WEEKDAY,
     "condition_mode": CONF_CONDITION_MODE,
     "due_template": CONF_DUE_TEMPLATE,
+    "window_template": CONF_WINDOW_TEMPLATE,
     "accumulator_source": CONF_ACCUM_SOURCE,
     "accumulator_limit": CONF_ACCUM_LIMIT,
     "accumulator_reset_on_done": CONF_ACCUM_RESET_ON_DONE,

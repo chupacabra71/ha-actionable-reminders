@@ -103,7 +103,7 @@ def test_the_render_reads_the_same_extras_as_the_condition(fake_template, frozen
     frozen_time.set(TUESDAY)
     fake_template.render = "ok"
     r = prompt_runner("{{ days_since_done }} days")
-    r._state[const.STATE_LAST_DONE] = "2026-08-11"
+    r._state[const.STATE_LAST_COMPLETED] = "2026-08-11"
 
     run(r._send_prompt(dt_util.now()))
 
@@ -144,7 +144,7 @@ def test_an_announcement_renders_too(fake_template, frozen_time):
     fake_template.render = "Data source dark: Consuela."
     r = prompt_runner("Data source dark: {{ whatever }}.", nag=False)
     announced: list[str] = []
-    r._announce = lambda message: _record(announced, message)
+    r._announce = lambda message, tag=None: _record(announced, message)
 
     run(r._send_announcement(dt_util.now()))
 
