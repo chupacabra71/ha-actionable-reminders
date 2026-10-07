@@ -245,6 +245,15 @@ create_reminder:
       example: "{{ 10 <= now().hour < 18 }}"
       selector:
         template:
+    category:
+      name: Category
+      description: >-
+        Free-text grouping for the reminders card and the "Reminders · <category>"
+        label on its switch. Empty = Uncategorized.
+      required: false
+      example: Yard & Lawn
+      selector:
+        text:
     message:
       name: Prompt message
       description: Custom text spoken/shown when prompting. Optional.
@@ -363,6 +372,15 @@ update_reminder:
       description: New display name. The switch's entity_id does not change.
       required: false
       example: Water the plants
+      selector:
+        text:
+    category:
+      name: Category
+      description: >-
+        Free-text grouping for the reminders card and the "Reminders · <category>"
+        label on its switch. Empty = Uncategorized.
+      required: false
+      example: Yard & Lawn
       selector:
         text:
     enabled:

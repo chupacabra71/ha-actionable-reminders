@@ -71,10 +71,12 @@ from .const import (
     CONF_ANNOUNCE_WHEN_AWAY,
     CONF_NAG,
     CONF_MANDATORY,
+    CONF_CATEGORY,
     DEFAULT_SCHEDULE_TIME,
     MONTHLY_WEEKS,
     WEEKDAYS,
 )
+from .categories import normalize_category
 
 # The schedule types the wizard writes. Legacy stored types (daily/weekly/
 # monthly/interval/yearly-as-schedule) are still readable — an update that does
@@ -129,6 +131,7 @@ _THRESHOLD_KEYS = (
 # so the two services read the same way.
 FIELD_MAP: dict[str, str] = {
     "name": CONF_REMINDER_NAME,
+    "category": CONF_CATEGORY,
     "enabled": CONF_ENABLED,
     "time": CONF_SCHEDULE_TIME,
     "every": CONF_INTERVAL_EVERY,
@@ -285,6 +288,8 @@ def build_updated_config(
             value = _as_time_str(value)
         elif field in _DATE_FIELDS:
             value = _as_date_str(value)
+        elif field == "category":
+            value = normalize_category(value)
         cfg[FIELD_MAP[field]] = value
 
     # 4. Messages. `message` is the single-message shorthand the wizard and

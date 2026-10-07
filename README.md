@@ -182,6 +182,41 @@ end — which is where the reply hint lives — so the prompt goes out sounding 
 and offers no way to answer it. Templates are left to the send-time warning,
 since their rendered length is only knowable then.
 
+## Categories & the reminders card
+
+Each reminder can carry an optional free-text **category** (wizard basics step,
+or `category` on `create_reminder` / `update_reminder`). The picker suggests
+Yard & Lawn, House, Pool, Vehicles, Pets, Family, Appliances, Health, Finance,
+Other, plus anything already in use; type a new one to create it. Blank means
+Uncategorized. The category is exposed as the switch's `category` attribute,
+and mirrored as an HA label named `Reminders · <category>` on the switch, so the
+entities page, label targets and auto-entities can filter by it. Only labels
+with that prefix are managed — your own labels on the same entity are never
+touched. A label whose last reminder moves away is left in place, empty.
+
+The integration serves a Lovelace card — no resource to add:
+
+```yaml
+type: custom:actionable-reminders-card
+categories: [Yard & Lawn, Pool]   # optional: only these
+show_search: true                  # default
+collapsed_by_default: false        # default
+```
+
+Reminders are grouped into collapsible sections (`Category · N · K due`,
+coloured by the worst status; collapse state is remembered per browser), with a
+name search and category chips. Tap a row for **Done / Snooze / Skip / Details**
+and, for admins, an inline editor for name, category, enabled, the schedule
+fields of its type, due/window templates, prompt messages, mandatory, carry
+forward and nag. Anything else (delivery, presence, quiet hours, on-complete)
+links to the full wizard.
+
+The card talks to two websocket commands: `actionable_reminders/list` (every
+reminder's status plus its stored config and the category suggestions) and
+`actionable_reminders/update` (`{entry_id, changes}`, admin-only). `update`
+validates with the same schema and applies the same merge as the
+`update_reminder` service, so the two cannot disagree.
+
 ## Household chores vs personal reminders
 
 Voice delivery follows the person a notification is addressed to: while they are
